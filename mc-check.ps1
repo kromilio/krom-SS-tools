@@ -1124,12 +1124,12 @@ function Open-MemoryScanWindow {
         } else {
             $PROCESS_ALL_ACCESS = 0x1F0FFF
             foreach ($proc in $javaProcs) {
-                $pid = $proc.Id
-                $rows.Add(@{ T="  Scanning PID $pid..."; K="INFO" })
+                $javaPid = $proc.Id
+                $rows.Add(@{ T="  Scanning PID $javaPid..."; K="INFO" })
                 try {
-                    $hProc = [MemAPI]::OpenProcess($PROCESS_ALL_ACCESS, $false, $pid)
+                    $hProc = [MemAPI]::OpenProcess($PROCESS_ALL_ACCESS, $false, $javaPid)
                     if ($hProc -eq [IntPtr]::Zero) {
-                        $rows.Add(@{ T="  [WARN]  Cannot open PID $pid -- run as Administrator"; K="WARN" })
+                        $rows.Add(@{ T="  [WARN]  Cannot open PID $javaPid -- run as Administrator"; K="WARN" })
                         continue
                     }
                     $mbi     = New-Object MemAPI+MEMORY_BASIC_INFORMATION
@@ -1146,7 +1146,7 @@ function Open-MemoryScanWindow {
                                     $text = [System.Text.Encoding]::ASCII.GetString($buf, 0, $read)
                                     foreach ($sig in $doomStrings) {
                                         if ($text -match [regex]::Escape($sig)) {
-                                            $rows.Add(@{ T="  [FLAGGED]  PID $pid  ->  string: '$sig'"; K="FLAG" })
+                                            $rows.Add(@{ T="  [FLAGGED]  PID $javaPid  ->  string: '$sig'"; K="FLAG" })
                                             $hitCount++; $totalFound++; break
                                         }
                                     }
@@ -1158,9 +1158,9 @@ function Open-MemoryScanWindow {
                         try { $addr = [IntPtr]::new($next) } catch { break }
                     }
                     [MemAPI]::CloseHandle($hProc) | Out-Null
-                    if ($hitCount -eq 0) { $rows.Add(@{ T="  [OK]  PID $pid -- no suspicious strings found"; K="OK" }) }
+                    if ($hitCount -eq 0) { $rows.Add(@{ T="  [OK]  PID $javaPid -- no suspicious strings found"; K="OK" }) }
                 } catch {
-                    $rows.Add(@{ T="  [WARN]  Error scanning PID $($pid): $($_.Exception.Message)"; K="WARN" })
+                    $rows.Add(@{ T="  [WARN]  Error scanning PID $($javaPid): $($_.Exception.Message)"; K="WARN" })
                 }
             }
         }
