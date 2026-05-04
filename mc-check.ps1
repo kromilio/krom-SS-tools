@@ -172,75 +172,84 @@ function Run-Checks($modsFolder) {
         $results[$s] += @{ Line="[WARN]  Could not read recycle bin contents"; Type="WARN" }
     }
 
-    # ── Permanently deleted in last 3 days via $Recycle.Bin metadata ──
-    $results[$s] += @{ Line="-- PERMANENTLY DELETED (last 3 days) --"; Type="HEAD" }
+    # ── Currently in bin (still recoverable, before permanent deletion) ──
+    # (already scanned above)
+
+    # ── Permanently deleted via USN Journal (last 3 days) ──
+    # Reads NTFS USN Change Journal which logs every file operation including Shift+Delete
+    $results[$s] += @{ Line="-- PERMANENTLY DELETED via USN Journal (last 3 days) --"; Type="HEAD" }
     try {
         $cutoff = (Get-Date).AddDays(-3)
-        $drives = Get-PSDrive -PSProvider FileSystem | Where-Object { Test-Path "$($_.Root)`$Recycle.Bin" }
-        $recentDeleted = 0
+        $drives = Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Root -match "^[A-Z]:\\$" }
+        $usnFound = 0
+        $usnTotal = 0
+
         foreach ($drive in $drives) {
-            $recyclePath = "$($drive.Root)`$Recycle.Bin"
-            # $I files store metadata about deleted items including original path and deletion time
-            $iFiles = Get-ChildItem $recyclePath -Recurse -Filter '$I*' -Force -ErrorAction SilentlyContinue |
-                Where-Object { $_.LastWriteTime -gt $cutoff }
-            foreach ($iFile in $iFiles) {
-                try {
-                    # Read original filename from $I metadata (starts at byte 28)
-                    $bytes    = [System.IO.File]::ReadAllBytes($iFile.FullName)
-                    $nameLen  = [BitConverter]::ToInt32($bytes, 24)
-                    $origName = [System.Text.Encoding]::Unicode.GetString($bytes, 28, [Math]::Min($nameLen * 2, $bytes.Length - 28)).TrimEnd([char]0)
-                    $delTime  = $iFile.LastWriteTime.ToString("yyyy-MM-dd HH:mm")
-                    $display  = if ($origName) { $origName } else { $iFile.Name }
-                    if ($display -match "\.jar|minecraft|mods|cheat|hack|wurst|meteor") {
-                        $results[$s] += @{ Line="[FLAGGED]  $display  |  deleted: $delTime"; Type="FLAG" }
-                    } else {
-                        $results[$s] += @{ Line="[INFO]  $display  |  deleted: $delTime"; Type="INFO" }
+            $driveLetter = $drive.Root.TrimEnd("\\")
+            try {
+                # fsutil reads the USN journal raw — much more complete than recycle bin
+                # Reason flag 0x00000200 = USN_REASON_FILE_DELETE, 0x00000800 = OBJECT_ID_CHANGE
+                $usnOutput = & fsutil usn readjournal $driveLetter csv 2>$null
+                if ($usnOutput) {
+                    foreach ($line in $usnOutput) {
+                        if ($line -notmatch "^\d+,") { continue }
+                        $parts = $line -split ","
+                        if ($parts.Count -lt 9) { continue }
+                        $reason = $parts[5]
+                        $fileName = $parts[8]
+                        # Reason 0x200 (FILE_DELETE) or contains DELETE
+                        if ($reason -match "0x[0-9A-Fa-f]*[2-9a-fA-F][0-9A-Fa-f]{2}$" -or $reason -match "DELETE") {
+                            $usnTotal++
+                            $isFlag = $false
+                            if ($fileName -match "\.jar$|minecraft|mods|cheat|hack|wurst|meteor|doomsday|inject|prestige|krypton") {
+                                $isFlag = $true
+                            }
+                            if ($isFlag -or $usnFound -lt 30) {
+                                if ($isFlag) {
+                                    $results[$s] += @{ Line="[FLAGGED]  $driveLetter\...\$fileName  ($reason)"; Type="FLAG" }
+                                } else {
+                                    $results[$s] += @{ Line="[INFO]  $driveLetter\...\$fileName"; Type="INFO" }
+                                }
+                                $usnFound++
+                            }
+                        }
                     }
-                    $recentDeleted++
-                } catch {
-                    $results[$s] += @{ Line="[INFO]  $($iFile.Name)  |  $($iFile.LastWriteTime.ToString('yyyy-MM-dd HH:mm'))"; Type="INFO" }
-                    $recentDeleted++
+                }
+            } catch {}
+        }
+        if ($usnFound -eq 0) {
+            $results[$s] += @{ Line="[WARN]  USN Journal unavailable — run as Administrator for complete results"; Type="WARN" }
+        } else {
+            $results[$s] += @{ Line="[INFO]  Showed $usnFound of $usnTotal deletion entries (capped at 30 unflagged)"; Type="INFO" }
+        }
+    } catch {
+        $results[$s] += @{ Line="[WARN]  Could not query USN Journal: $($_.Exception.Message)"; Type="WARN" }
+    }
+
+    # ── Security Event Log (4660 = object deleted) ──
+    $results[$s] += @{ Line="-- SECURITY EVENT LOG (deletions, last 3 days) --"; Type="HEAD" }
+    try {
+        $cutoff = (Get-Date).AddDays(-3)
+        $events = Get-WinEvent -FilterHashtable @{
+            LogName='Security'; ID=4660; StartTime=$cutoff
+        } -MaxEvents 100 -ErrorAction Stop
+        if ($events.Count -eq 0) {
+            $results[$s] += @{ Line="[OK]  No deletion events in last 3 days"; Type="OK" }
+        } else {
+            foreach ($ev in $events) {
+                $msg = $ev.Message
+                $obj = if ($msg -match "Object Name:\s+([^\r\n]+)") { $matches[1].Trim() } else { "(unknown)" }
+                $when = $ev.TimeCreated.ToString("yyyy-MM-dd HH:mm")
+                if ($obj -match "\.jar|minecraft|mods|cheat|hack|wurst|meteor|doomsday|inject|prestige|krypton") {
+                    $results[$s] += @{ Line="[FLAGGED]  $when  ->  $obj"; Type="FLAG" }
+                } else {
+                    $results[$s] += @{ Line="[INFO]  $when  ->  $obj"; Type="INFO" }
                 }
             }
         }
-        if ($recentDeleted -eq 0) {
-            $results[$s] += @{ Line="[OK]  No permanently deleted files found in last 3 days"; Type="OK" }
-        }
     } catch {
-        $results[$s] += @{ Line="[WARN]  Could not read Recycle.Bin metadata — try running as Administrator"; Type="WARN" }
-    }
-
-    # ── Deleted in last 24 hours specifically ──
-    $results[$s] += @{ Line="-- DELETED LAST 24 HOURS --"; Type="HEAD" }
-    try {
-        $cutoff24 = (Get-Date).AddHours(-24)
-        $drives24  = Get-PSDrive -PSProvider FileSystem | Where-Object { Test-Path "$($_.Root)`$Recycle.Bin" }
-        $found24   = 0
-        foreach ($drive in $drives24) {
-            $recyclePath = "$($drive.Root)`$Recycle.Bin"
-            $iFiles24 = Get-ChildItem $recyclePath -Recurse -Filter '$I*' -Force -ErrorAction SilentlyContinue |
-                Where-Object { $_.LastWriteTime -gt $cutoff24 }
-            foreach ($iFile in $iFiles24) {
-                try {
-                    $bytes    = [System.IO.File]::ReadAllBytes($iFile.FullName)
-                    $nameLen  = [BitConverter]::ToInt32($bytes, 24)
-                    $origName = [System.Text.Encoding]::Unicode.GetString($bytes, 28, [Math]::Min($nameLen * 2, $bytes.Length - 28)).TrimEnd([char]0)
-                    $delTime  = $iFile.LastWriteTime.ToString("yyyy-MM-dd HH:mm")
-                    $display  = if ($origName) { $origName } else { $iFile.Name }
-                    if ($display -match "\.jar|minecraft|mods|cheat|hack|wurst|meteor") {
-                        $results[$s] += @{ Line="[FLAGGED]  $display  |  $delTime"; Type="FLAG" }
-                    } else {
-                        $results[$s] += @{ Line="[INFO]  $display  |  $delTime"; Type="INFO" }
-                    }
-                    $found24++
-                } catch { $found24++ }
-            }
-        }
-        if ($found24 -eq 0) {
-            $results[$s] += @{ Line="[OK]  Nothing deleted in last 24 hours"; Type="OK" }
-        }
-    } catch {
-        $results[$s] += @{ Line="[WARN]  Could not read last 24h deletions"; Type="WARN" }
+        $results[$s] += @{ Line="[WARN]  Event 4660 audit not enabled or admin needed — see notes below"; Type="WARN" }
+        $results[$s] += @{ Line="  To enable: Local Security Policy > Audit Policy > Audit Object Access = Success+Failure"; Type="INFO" }
     }
 
     $s = "DELETED FILES"; $results[$s] = @()
@@ -1258,19 +1267,42 @@ function Open-MemoryScanWindow {
             }
         }
 
-        # Push results to UI
+        # Push results to UI - inlined since closure can't see Add-MemRow
         $tf = $flagCount; $tw = $warnCount; $to = $okCount
         $capturedRows = $rows
         $memWin.Dispatcher.Invoke([action]{
             foreach ($row in $capturedRows) {
-                Add-MemRow $row.T $row.K $memList $brush
+                $r = New-Object System.Windows.Controls.Border
+                $r.Margin       = New-Object System.Windows.Thickness(12,2,12,0)
+                $r.CornerRadius = New-Object System.Windows.CornerRadius(4)
+                $r.Padding      = New-Object System.Windows.Thickness(10,6,10,6)
+                switch ($row.K) {
+                    "FLAG" { $r.Background = $brush.ConvertFrom("#281010"); $fg = "#F7A0A0" }
+                    "WARN" { $r.Background = $brush.ConvertFrom("#28200E"); $fg = "#E0B87A" }
+                    "OK"   { $r.Background = $brush.ConvertFrom("#0E2014"); $fg = "#7ADFAA" }
+                    "HEAD" { $r.Background = $brush.ConvertFrom("#1A1E25"); $fg = "#4F8EF7" }
+                    default{ $r.Background = $brush.ConvertFrom("#13161B"); $fg = "#9CA3AF" }
+                }
+                $tb = New-Object System.Windows.Controls.TextBlock
+                $tb.Text         = $row.T
+                $tb.FontFamily   = New-Object System.Windows.Media.FontFamily("Consolas")
+                $tb.FontSize     = 11
+                $tb.Foreground   = $brush.ConvertFrom($fg)
+                $tb.TextWrapping = "Wrap"
+                $r.Child = $tb
+                $li = New-Object System.Windows.Controls.ListBoxItem
+                $li.Content         = $r
+                $li.Background      = [System.Windows.Media.Brushes]::Transparent
+                $li.BorderThickness = New-Object System.Windows.Thickness(0)
+                $li.Padding         = New-Object System.Windows.Thickness(0)
+                $memList.Items.Add($li) | Out-Null
             }
             $memFlags = $memWin.FindName("MemFlags")
             $memWarns = $memWin.FindName("MemWarns")
             $memClean = $memWin.FindName("MemClean")
-            $memFlags.Text = "$tf"
-            $memWarns.Text = "$tw"
-            $memClean.Text = "$to"
+            if ($memFlags) { $memFlags.Text = "$tf" }
+            if ($memWarns) { $memWarns.Text = "$tw" }
+            if ($memClean) { $memClean.Text = "$to" }
 
             if ($tf -gt 0) {
                 $memStatus.Text = "$tf finding(s)"
