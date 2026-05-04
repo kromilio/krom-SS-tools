@@ -45,27 +45,72 @@ function Run-Checks($modsFolder) {
         } else {
             foreach ($jar in $jars) {
                 try {
-                    $zip      = [System.IO.Compression.ZipFile]::OpenRead($jar.FullName)
-                    $manifest = $zip.Entries | Where-Object { $_.FullName -match "fabric\.mod\.json|mods\.toml|mcmod\.info" }
-                    if ($manifest) {
-                        $reader  = New-Object System.IO.StreamReader($manifest[0].Open())
-                        $content = $reader.ReadToEnd(); $reader.Close()
-                        if ($content -match '"modid"\s*:\s*"([^"]+)"') {
-                            $id = $matches[1]
-                            if ($jar.BaseName -notmatch [regex]::Escape($id) -and $id -notmatch [regex]::Escape($jar.BaseName)) {
-                                $results[$s] += @{ Line="[MISMATCH]  $($jar.Name)  ->  internal: '$id'"; Type="FLAG" }
-                            } else {
-                                $results[$s] += @{ Line="[OK]  $($jar.Name)  ->  '$id'"; Type="OK" }
-                            }
-                        } else {
-                            $results[$s] += @{ Line="[WARN]  $($jar.Name)  ->  no mod ID found"; Type="WARN" }
-                        }
-                    } else {
-                        $results[$s] += @{ Line="[WARN]  $($jar.Name)  ->  no manifest"; Type="WARN" }
+                    $zip = [System.IO.Compression.ZipFile]::OpenRead($jar.FullName)
+                    $internalNames = @()
+
+                    # fabric.mod.json - id and name fields
+                    $fe = $zip.Entries | Where-Object { $_.FullName -eq "fabric.mod.json" }
+                    if ($fe) {
+                        $r = New-Object System.IO.StreamReader($fe.Open())
+                        $c = $r.ReadToEnd(); $r.Close()
+                        if ($c -match '"id"\s*:\s*"([^"]+)"')   { $internalNames += $matches[1] }
+                        if ($c -match '"name"\s*:\s*"([^"]+)"') { $internalNames += $matches[1] }
                     }
+
+                    # quilt.mod.json
+                    $qe = $zip.Entries | Where-Object { $_.FullName -eq "quilt.mod.json" }
+                    if ($qe) {
+                        $r = New-Object System.IO.StreamReader($qe.Open())
+                        $c = $r.ReadToEnd(); $r.Close()
+                        if ($c -match '"id"\s*:\s*"([^"]+)"')   { $internalNames += $matches[1] }
+                        if ($c -match '"name"\s*:\s*"([^"]+)"') { $internalNames += $matches[1] }
+                    }
+
+                    # mods.toml - modId and displayName
+                    $te = $zip.Entries | Where-Object { $_.FullName -match "mods\.toml$" }
+                    if ($te) {
+                        $r = New-Object System.IO.StreamReader($te[0].Open())
+                        $c = $r.ReadToEnd(); $r.Close()
+                        if ($c -match 'modId\s*=\s*"([^"]+)"')      { $internalNames += $matches[1] }
+                        if ($c -match 'displayName\s*=\s*"([^"]+)"') { $internalNames += $matches[1] }
+                    }
+
+                    # mcmod.info
+                    $me = $zip.Entries | Where-Object { $_.FullName -eq "mcmod.info" }
+                    if ($me) {
+                        $r = New-Object System.IO.StreamReader($me.Open())
+                        $c = $r.ReadToEnd(); $r.Close()
+                        if ($c -match '"modid"\s*:\s*"([^"]+)"') { $internalNames += $matches[1] }
+                        if ($c -match '"name"\s*:\s*"([^"]+)"')  { $internalNames += $matches[1] }
+                    }
+
                     $zip.Dispose()
+
+                    if ($internalNames.Count -eq 0) {
+                        $results[$s] += @{ Line="[WARN]  $($jar.Name)  ->  no manifest found"; Type="WARN" }
+                    } else {
+                        $fileBase = ($jar.BaseName -replace '[^a-zA-Z0-9]','').ToLower()
+                        $matched  = $false
+                        foreach ($n in $internalNames) {
+                            $cleanN = ($n -replace '[^a-zA-Z0-9]','').ToLower()
+                            if ($cleanN.Length -lt 3) { continue }
+                            if ($fileBase -match $cleanN -or $cleanN -match $fileBase) {
+                                $matched = $true; break
+                            }
+                            # partial match on first 5+ chars
+                            if ($cleanN.Length -ge 5 -and $fileBase -match $cleanN.Substring(0, [Math]::Min(6,$cleanN.Length))) {
+                                $matched = $true; break
+                            }
+                        }
+                        $primary = $internalNames[0]
+                        if (-not $matched) {
+                            $results[$s] += @{ Line="[MISMATCH]  $($jar.Name)  ->  internal: '$primary'"; Type="FLAG" }
+                        } else {
+                            $results[$s] += @{ Line="[OK]  $($jar.Name)  ->  '$primary'"; Type="OK" }
+                        }
+                    }
                 } catch {
-                    $results[$s] += @{ Line="[WARN]  $($jar.Name)  ->  unreadable"; Type="WARN" }
+                    $results[$s] += @{ Line="[WARN]  $($jar.Name)  ->  could not read"; Type="WARN" }
                 }
             }
         }
@@ -553,10 +598,12 @@ function Start-Scan {
 }
 
 # ── Wire up buttons ────────────────────────────────────────────────────────────
-foreach ($kvp in $NavBtns.GetEnumerator()) {
-    $key = $kvp.Key
-    $kvp.Value.Add_Click({ Show-Section $key }.GetNewClosure())
-}
+$NavBtns["OVERVIEW"].Add_Click(      { Show-Section "OVERVIEW" })
+$NavBtns["MOD SCANNER"].Add_Click(   { Show-Section "MOD SCANNER" })
+$NavBtns["RENAMED JARS"].Add_Click(  { Show-Section "RENAMED JARS" })
+$NavBtns["RECYCLE BIN"].Add_Click(   { Show-Section "RECYCLE BIN" })
+$NavBtns["DELETED FILES"].Add_Click( { Show-Section "DELETED FILES" })
+$NavBtns["RECENT CHANGES"].Add_Click({ Show-Section "RECENT CHANGES" })
 
 $BtnRescan.Add_Click({ Start-Scan })
 
