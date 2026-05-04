@@ -210,25 +210,26 @@ $mainPanel.Dock = "Fill"
 $mainPanel.BackColor = $c.Bg
 $form.Controls.Add($mainPanel)
 
-# Sidebar
-$sidebar = New-Object System.Windows.Forms.Panel
-$sidebar.Width = 190
-$sidebar.Dock = "Left"
-$sidebar.BackColor = $c.Bg2
-$mainPanel.Controls.Add($sidebar)
+# Content area MUST be added first so Dock=Fill doesn't get pushed behind sidebar
+$contentPanel = New-Object System.Windows.Forms.Panel
+$contentPanel.Dock = "Fill"
+$contentPanel.BackColor = $c.Bg
+$contentPanel.Padding = New-Object System.Windows.Forms.Padding(20, 16, 20, 16)
+$mainPanel.Controls.Add($contentPanel)
 
+# Sidebar border
 $sidebarBorder = New-Object System.Windows.Forms.Panel
 $sidebarBorder.Width = 1
 $sidebarBorder.Dock = "Left"
 $sidebarBorder.BackColor = $c.Border
 $mainPanel.Controls.Add($sidebarBorder)
 
-# Content area
-$contentPanel = New-Object System.Windows.Forms.Panel
-$contentPanel.Dock = "Fill"
-$contentPanel.BackColor = $c.Bg
-$contentPanel.Padding = New-Object System.Windows.Forms.Padding(20, 16, 20, 16)
-$mainPanel.Controls.Add($contentPanel)
+# Sidebar added last so it docks Left correctly
+$sidebar = New-Object System.Windows.Forms.Panel
+$sidebar.Width = 190
+$sidebar.Dock = "Left"
+$sidebar.BackColor = $c.Bg2
+$mainPanel.Controls.Add($sidebar)
 
 # Section heading
 $sectionTitle = New-Object System.Windows.Forms.Label
