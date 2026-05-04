@@ -1140,12 +1140,13 @@ function Open-MemoryScanWindow {
     $memReader = New-Object System.Xml.XmlNodeReader $memXaml
     $memWin    = [Windows.Markup.XamlReader]::Load($memReader)
 
-    $memList   = $memWin.FindName("MemList")
-    $memStatus = $memWin.FindName("MemStatus")
-    $memSub    = $memWin.FindName("MemSub")
+    $script:memList   = $memWin.FindName("MemList")
+    $script:memStatus = $memWin.FindName("MemStatus")
+    $script:memSub    = $memWin.FindName("MemSub")
+    $script:memWinRef = $memWin
+    $script:brush     = [System.Windows.Media.BrushConverter]::new()
     $btnStart  = $memWin.FindName("BtnStartMem")
     $btnClear  = $memWin.FindName("BtnClearMem")
-    $brush     = [System.Windows.Media.BrushConverter]::new()
 
     function Add-MemRow {
         param($text, $type, $list, $br)
@@ -1176,17 +1177,17 @@ function Open-MemoryScanWindow {
     }
 
     $btnClear.Add_Click({
-        $memList.Items.Clear()
-        $memStatus.Text = "idle"
-        $memSub.Text    = "Scan for traces of self-destructed cheats"
+        $script:memList.Items.Clear()
+        $script:memStatus.Text = "idle"
+        $script:memSub.Text    = "Scan for traces of self-destructed cheats"
     }.GetNewClosure())
 
     $btnStart.Add_Click({
-        $memList.Items.Clear()
-        $memStatus.Text = "scanning..."
-        $memStatus.Foreground = $brush.ConvertFrom("#F7A94F")
-        $memSub.Text = "Reading javaw.exe process memory..."
-        $memWin.Dispatcher.Invoke([action]{}, "Render")
+        $script:memList.Items.Clear()
+        $script:memStatus.Text = "scanning..."
+        $script:memStatus.Foreground = $script:brush.ConvertFrom("#F7A94F")
+        $script:memSub.Text = "Reading javaw.exe process memory..."
+        $script:memWinRef.Dispatcher.Invoke([action]{}, "Render")
 
         # Strings to search for in javaw memory
         $signatures = @("inject","destruct","selfdestruct","self destruct","self_destruct","prestige","krypton")
@@ -1270,24 +1271,24 @@ function Open-MemoryScanWindow {
         # Push results to UI - inlined since closure can't see Add-MemRow
         $tf = $flagCount; $tw = $warnCount; $to = $okCount
         $capturedRows = $rows
-        $memWin.Dispatcher.Invoke([action]{
+        $script:memWinRef.Dispatcher.Invoke([action]{
             foreach ($row in $capturedRows) {
                 $r = New-Object System.Windows.Controls.Border
                 $r.Margin       = New-Object System.Windows.Thickness(12,2,12,0)
                 $r.CornerRadius = New-Object System.Windows.CornerRadius(4)
                 $r.Padding      = New-Object System.Windows.Thickness(10,6,10,6)
                 switch ($row.K) {
-                    "FLAG" { $r.Background = $brush.ConvertFrom("#281010"); $fg = "#F7A0A0" }
-                    "WARN" { $r.Background = $brush.ConvertFrom("#28200E"); $fg = "#E0B87A" }
-                    "OK"   { $r.Background = $brush.ConvertFrom("#0E2014"); $fg = "#7ADFAA" }
-                    "HEAD" { $r.Background = $brush.ConvertFrom("#1A1E25"); $fg = "#4F8EF7" }
-                    default{ $r.Background = $brush.ConvertFrom("#13161B"); $fg = "#9CA3AF" }
+                    "FLAG" { $r.Background = $script:brush.ConvertFrom("#281010"); $fg = "#F7A0A0" }
+                    "WARN" { $r.Background = $script:brush.ConvertFrom("#28200E"); $fg = "#E0B87A" }
+                    "OK"   { $r.Background = $script:brush.ConvertFrom("#0E2014"); $fg = "#7ADFAA" }
+                    "HEAD" { $r.Background = $script:brush.ConvertFrom("#1A1E25"); $fg = "#4F8EF7" }
+                    default{ $r.Background = $script:brush.ConvertFrom("#13161B"); $fg = "#9CA3AF" }
                 }
                 $tb = New-Object System.Windows.Controls.TextBlock
                 $tb.Text         = $row.T
                 $tb.FontFamily   = New-Object System.Windows.Media.FontFamily("Consolas")
                 $tb.FontSize     = 11
-                $tb.Foreground   = $brush.ConvertFrom($fg)
+                $tb.Foreground   = $script:brush.ConvertFrom($fg)
                 $tb.TextWrapping = "Wrap"
                 $r.Child = $tb
                 $li = New-Object System.Windows.Controls.ListBoxItem
@@ -1295,23 +1296,23 @@ function Open-MemoryScanWindow {
                 $li.Background      = [System.Windows.Media.Brushes]::Transparent
                 $li.BorderThickness = New-Object System.Windows.Thickness(0)
                 $li.Padding         = New-Object System.Windows.Thickness(0)
-                $memList.Items.Add($li) | Out-Null
+                $script:memList.Items.Add($li) | Out-Null
             }
-            $memFlags = $memWin.FindName("MemFlags")
-            $memWarns = $memWin.FindName("MemWarns")
-            $memClean = $memWin.FindName("MemClean")
+            $memFlags = $script:memWinRef.FindName("MemFlags")
+            $memWarns = $script:memWinRef.FindName("MemWarns")
+            $memClean = $script:memWinRef.FindName("MemClean")
             if ($memFlags) { $memFlags.Text = "$tf" }
             if ($memWarns) { $memWarns.Text = "$tw" }
             if ($memClean) { $memClean.Text = "$to" }
 
             if ($tf -gt 0) {
-                $memStatus.Text = "$tf finding(s)"
-                $memStatus.Foreground = $brush.ConvertFrom("#F74F4F")
-                $memSub.Text = "Suspicious strings found in javaw memory"
+                $script:memStatus.Text = "$tf finding(s)"
+                $script:memStatus.Foreground = $script:brush.ConvertFrom("#F74F4F")
+                $script:memSub.Text = "Suspicious strings found in javaw memory"
             } else {
-                $memStatus.Text = "clean"
-                $memStatus.Foreground = $brush.ConvertFrom("#4FF78E")
-                $memSub.Text = "No suspicious strings found in javaw memory"
+                $script:memStatus.Text = "clean"
+                $script:memStatus.Foreground = $script:brush.ConvertFrom("#4FF78E")
+                $script:memSub.Text = "No suspicious strings found in javaw memory"
             }
         }.GetNewClosure(), "Normal")
     }.GetNewClosure())
