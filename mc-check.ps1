@@ -109,8 +109,28 @@ function Run-Checks($modsFolder) {
                             $allText = ($internalNames -join " ").ToLower()
                             if ($allText -match $kw) { $keywordHit = $kw; break }
                         }
+                        # Random/gibberish name detection
+                        # A legit mod name has vowels, readable words, version numbers
+                        # A random name like 02h64ut8g has high digit ratio or no vowels
+                        $baseName = $jar.BaseName -replace '[^a-zA-Z0-9]',''
+                        $digitCount  = ($baseName -replace '[^0-9]','').Length
+                        $vowelCount  = ($baseName -replace '[^aeiouAEIOU]','').Length
+                        $totalLen    = $baseName.Length
+                        $isGibberish = $false
+                        if ($totalLen -ge 6) {
+                            $digitRatio = if ($totalLen -gt 0) { $digitCount / $totalLen } else { 0 }
+                            $vowelRatio = if ($totalLen -gt 0) { $vowelCount / $totalLen } else { 0 }
+                            # Flag if >40% digits, or <5% vowels and no version pattern
+                            if ($digitRatio -gt 0.4) { $isGibberish = $true }
+                            elseif ($vowelRatio -lt 0.05 -and $baseName -notmatch '^[a-zA-Z]+-\d') { $isGibberish = $true }
+                            # Flag if name is just hex chars (0-9 a-f) 8+ chars
+                            elseif ($baseName -match '^[0-9a-fA-F]{8,}$') { $isGibberish = $true }
+                        }
+
                         if (-not $matched) {
                             $results[$s] += @{ Line="[MISMATCH]  $($jar.Name)  ->  internal: '$primary'"; Type="FLAG" }
+                        } elseif ($isGibberish) {
+                            $results[$s] += @{ Line="[FLAGGED]  $($jar.Name)  ->  random/gibberish filename"; Type="FLAG" }
                         } elseif ($keywordHit -ne "") {
                             $results[$s] += @{ Line="[FLAGGED]  $($jar.Name)  ->  keyword match: '$keywordHit' in '$primary'"; Type="FLAG" }
                         } else {
@@ -221,6 +241,10 @@ function Run-Checks($modsFolder) {
     } else {
         $results[$s] += @{ Line="[WARN]  Prefetch folder not found or not accessible"; Type="WARN" }
     }
+
+    $s = "LOG SCANNER"; $results[$s] = @()
+    # Placeholder — log scanner is manual, results populated separately
+    $results[$s] += @{ Line="Use the Log Scanner tab to load a latest.log file"; Type="INFO" }
 
     return $results
 }
@@ -396,6 +420,7 @@ function Run-Checks($modsFolder) {
                     <Button x:Name="BtnDeletedFiles"  Content="  Deleted Files"  Style="{StaticResource NavBtn}"       Tag="DELETED FILES"/>
                     <Button x:Name="BtnRecentChanges" Content="  Recent Changes" Style="{StaticResource NavBtn}"       Tag="RECENT CHANGES"/>
                     <Button x:Name="BtnPrefetch"      Content="  Prefetch Scan"  Style="{StaticResource NavBtn}"       Tag="PREFETCH SCAN"/>
+                    <Button x:Name="BtnLogScanner"    Content="  Log Scanner"    Style="{StaticResource NavBtn}"       Tag="LOG SCANNER"/>
 
                     <Rectangle Height="1" Fill="#282D37" Margin="12,10"/>
                 </StackPanel>
@@ -485,6 +510,31 @@ function Run-Checks($modsFolder) {
                     </Grid>
                 </Border>
 
+                <!-- Log Scanner path bar -->
+                <Border Grid.Row="2" x:Name="LogBar" Background="#13161B"
+                        BorderBrush="#282D37" BorderThickness="0,0,0,1"
+                        Padding="22,12" Visibility="Collapsed">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="8"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Grid Grid.Row="0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="latest.log path:" FontFamily="Consolas" FontSize="10"
+                                       Foreground="#6B7280" VerticalAlignment="Center"
+                                       Margin="0,0,10,0" Grid.Column="0"/>
+                            <TextBox x:Name="LogPathBox" Style="{StaticResource PathBox}" Grid.Column="1"/>
+                        </Grid>
+                        <Button x:Name="BtnScanLog" Grid.Row="2" Content="Scan this log"
+                                Style="{StaticResource ScanBtn}" HorizontalAlignment="Left" Width="130"/>
+                    </Grid>
+                </Border>
+
                 <!-- Results list -->
                 <ListBox x:Name="ResultsList" Grid.Row="3"
                          Background="Transparent" BorderThickness="0"
@@ -515,6 +565,9 @@ $PathBox        = $window.FindName("PathBox")
 $ResultsList    = $window.FindName("ResultsList")
 $BtnRescan      = $window.FindName("BtnRescan")
 $BtnScanFolder  = $window.FindName("BtnScanFolder")
+$LogBar         = $window.FindName("LogBar")
+$LogPathBox     = $window.FindName("LogPathBox")
+$BtnScanLog     = $window.FindName("BtnScanLog")
 
 $NavBtns = @{
     "OVERVIEW"       = $window.FindName("BtnOverview")
@@ -524,9 +577,12 @@ $NavBtns = @{
     "DELETED FILES"  = $window.FindName("BtnDeletedFiles")
     "RECENT CHANGES" = $window.FindName("BtnRecentChanges")
     "PREFETCH SCAN"  = $window.FindName("BtnPrefetch")
+    "LOG SCANNER"    = $window.FindName("BtnLogScanner")
 }
 
 $PathBox.Text = $global:CustomModsPath
+$global:LogPath = "$env:APPDATA\.minecraft\logs\latest.log"
+$LogPathBox.Text = $global:LogPath
 
 # ── Result row builder ─────────────────────────────────────────────────────────
 function Add-ResultRow($text, $type) {
@@ -565,6 +621,7 @@ function Show-Section($key) {
     $global:ActiveSection = $key
     $ResultsList.Items.Clear()
     $PathBar.Visibility = if ($key -eq "MOD SCANNER") { "Visible" } else { "Collapsed" }
+    $LogBar.Visibility  = if ($key -eq "LOG SCANNER")  { "Visible" } else { "Collapsed" }
 
     foreach ($b in $NavBtns.Values) {
         $b.Style = $window.Resources["NavBtn"]
@@ -592,6 +649,11 @@ function Show-Section($key) {
         } else {
             $SectionSub.Text = "Enter mods folder path and click Scan"
         }
+    } elseif ($key -eq "LOG SCANNER") {
+        $SectionTitle.Text = "// LOG SCANNER"
+        $SectionSub.Text   = "Load a latest.log to scan for cheat client signatures"
+        Add-ResultRow "  Enter the path to latest.log above and click Scan this log" "INFO"
+        Add-ResultRow "  Default path: %APPDATA%\.minecraft\logs\latest.log" "INFO"
     } else {
         $SectionTitle.Text = "// $key"
         $items = $global:ScanResults[$key]
@@ -659,6 +721,74 @@ $NavBtns["RECYCLE BIN"].Add_Click(   { Show-Section "RECYCLE BIN" })
 $NavBtns["DELETED FILES"].Add_Click( { Show-Section "DELETED FILES" })
 $NavBtns["RECENT CHANGES"].Add_Click({ Show-Section "RECENT CHANGES" })
 $NavBtns["PREFETCH SCAN"].Add_Click( { Show-Section "PREFETCH SCAN" })
+$NavBtns["LOG SCANNER"].Add_Click(   { Show-Section "LOG SCANNER" })
+
+function Scan-Log($logPath) {
+    $ResultsList.Items.Clear()
+    $SectionTitle.Text = "// LOG SCANNER"
+
+    if (-not (Test-Path $logPath)) {
+        $SectionSub.Text = "File not found"
+        Add-ResultRow "  Could not find: $logPath" "WARN"
+        return
+    }
+
+    $lines = Get-Content $logPath -ErrorAction SilentlyContinue
+    if (-not $lines) {
+        $SectionSub.Text = "Could not read log file"
+        Add-ResultRow "  File empty or unreadable" "WARN"
+        return
+    }
+
+    $cheatSigs = @(
+        "wurst","meteor","liquidbounce","aristois","sigma","impact","future","inertia",
+        "novoline","baritone","nodus","wolfram","rusherhack","doomsday","catlean",
+        "mace","shieldbreak","spear","xray","killaura","kill aura","aimbot","autoclicker",
+        "auto clicker","blink","velocity","nofall","no fall","esp","wallhack","scaffold",
+        "speed hack","flyhack","freecam","cavefinder","tracers","cheatbreaker","badlion",
+        "lunarclient","lunar client","salwyrr","feather","labymod","5zig"
+    )
+
+    $flaggedLines = @()
+    $warnLines    = @()
+    $lineNum      = 0
+
+    foreach ($line in $lines) {
+        $lineNum++
+        $lower = $line.ToLower()
+        foreach ($sig in $cheatSigs) {
+            if ($lower -match [regex]::Escape($sig)) {
+                $flaggedLines += @{ Line="[FLAGGED] Line $lineNum  ->  '$sig'  |  $($line.Trim())"; Type="FLAG" }
+                break
+            }
+        }
+        # Warn on unusual class loads that might indicate injected clients
+        if ($lower -match "classloader|inject|agent|transform|asm|mixin" -and $lower -match "error|warn|unknown") {
+            $warnLines += @{ Line="[WARN] Line $lineNum  ->  $($line.Trim())"; Type="WARN" }
+        }
+    }
+
+    $SectionSub.Text = "$($lines.Count) lines scanned — $($flaggedLines.Count) flagged — $($warnLines.Count) suspicious"
+
+    if ($flaggedLines.Count -eq 0 -and $warnLines.Count -eq 0) {
+        Add-ResultRow "  No cheat signatures found in log" "OK"
+    } else {
+        if ($flaggedLines.Count -gt 0) {
+            Add-ResultRow "  FLAGGED SIGNATURES" "HEAD"
+            foreach ($item in $flaggedLines) { Add-ResultRow "  $($item.Line)" "FLAG" }
+        }
+        if ($warnLines.Count -gt 0) {
+            Add-ResultRow "  SUSPICIOUS ENTRIES" "HEAD"
+            foreach ($item in $warnLines) { Add-ResultRow "  $($item.Line)" "WARN" }
+        }
+    }
+}
+
+$BtnScanLog.Add_Click({
+    $logPath = $LogPathBox.Text.Trim()
+    $global:LogPath = $logPath
+    Scan-Log $logPath
+})
 
 $BtnRescan.Add_Click({ Start-Scan })
 
