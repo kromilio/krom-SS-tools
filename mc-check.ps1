@@ -921,26 +921,83 @@ function Open-MemoryScanWindow {
 <Window
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="Memory Scan - Krom SS Tools" Height="560" Width="780"
-    MinHeight="400" MinWidth="600"
+    Title="Memory Scan - Krom SS Tools" Height="600" Width="820"
+    MinHeight="450" MinWidth="650"
     Background="#0D0F12" Foreground="#E8EAF0"
     WindowStartupLocation="CenterScreen" ResizeMode="CanResize">
+
+    <Window.Resources>
+        <Style x:Key="ActionBtn" TargetType="Button">
+            <Setter Property="Background" Value="#13161B"/>
+            <Setter Property="Foreground" Value="#4F8EF7"/>
+            <Setter Property="BorderBrush" Value="#282D37"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontFamily" Value="Consolas"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Padding" Value="18,0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#1A1E25"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="ScanBtn" TargetType="Button" BasedOn="{StaticResource ActionBtn}">
+            <Setter Property="Foreground" Value="#4FF78E"/>
+            <Setter Property="BorderBrush" Value="#2A4A38"/>
+        </Style>
+        <Style x:Key="ResultItem" TargetType="ListBoxItem">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <ContentPresenter/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="48"/>
             <RowDefinition Height="1"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="1"/>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="60"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
+        <!-- Titlebar -->
         <Grid Grid.Row="0" Background="#13161B">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="18,0,0,0">
                 <Border Background="#F74F4F" CornerRadius="5" Width="26" Height="26" Margin="0,0,10,0">
                     <TextBlock Text="M" FontFamily="Consolas" FontWeight="Bold" FontSize="13"
                                Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Border>
-                <TextBlock Text="MEMORY SCAN" FontFamily="Consolas" FontWeight="Bold" FontSize="13"
+                <TextBlock Text="MEMORY " FontFamily="Consolas" FontWeight="Bold" FontSize="13"
+                           Foreground="#F74F4F" VerticalAlignment="Center"/>
+                <TextBlock Text="SCAN" FontFamily="Consolas" FontWeight="Bold" FontSize="13"
                            Foreground="#E8EAF0" VerticalAlignment="Center"/>
+                <Border Background="#1A1E25" BorderBrush="#282D37" BorderThickness="1"
+                        CornerRadius="3" Margin="10,0,0,0" Padding="6,2">
+                    <TextBlock Text="separate window" FontFamily="Consolas" FontSize="9" Foreground="#6B7280"/>
+                </Border>
             </StackPanel>
             <TextBlock Name="MemStatus" Text="idle" FontFamily="Consolas" FontSize="10"
                        Foreground="#6B7280" VerticalAlignment="Center"
@@ -949,24 +1006,64 @@ function Open-MemoryScanWindow {
 
         <Rectangle Grid.Row="1" Fill="#282D37"/>
 
-        <ListBox Name="MemList" Grid.Row="2"
-                 Background="#0D0F12" BorderThickness="0"
-                 Foreground="#E8EAF0" FontFamily="Consolas" FontSize="11"
-                 Padding="20,12,20,12"/>
+        <!-- Section header (matches main panel) -->
+        <Grid Grid.Row="2" Margin="22,18,22,16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0">
+                <TextBlock Text="// MEMORY SCAN" FontFamily="Consolas" FontWeight="Bold" FontSize="15"
+                           Foreground="#E8EAF0"/>
+                <TextBlock Name="MemSub" Text="Scan for traces of self-destructed cheats" FontFamily="Segoe UI" FontSize="11"
+                           Foreground="#6B7280" Margin="0,3,0,0"/>
+            </StackPanel>
+            <Border Grid.Column="1" Background="#13161B"
+                    BorderBrush="#282D37" BorderThickness="1" CornerRadius="6"
+                    Padding="14,8" VerticalAlignment="Top">
+                <StackPanel Orientation="Horizontal">
+                    <StackPanel Margin="0,0,16,0">
+                        <TextBlock Text="FLAGGED" FontFamily="Consolas" FontSize="8"
+                                   Foreground="#6B7280" Margin="0,0,0,2"/>
+                        <TextBlock Name="MemFlags" Text="0" FontFamily="Consolas"
+                                   FontSize="18" FontWeight="Bold" Foreground="#F74F4F"/>
+                    </StackPanel>
+                    <StackPanel Margin="0,0,16,0">
+                        <TextBlock Text="WARNINGS" FontFamily="Consolas" FontSize="8"
+                                   Foreground="#6B7280" Margin="0,0,0,2"/>
+                        <TextBlock Name="MemWarns" Text="0" FontFamily="Consolas"
+                                   FontSize="18" FontWeight="Bold" Foreground="#F7A94F"/>
+                    </StackPanel>
+                    <StackPanel>
+                        <TextBlock Text="CLEAN" FontFamily="Consolas" FontSize="8"
+                                   Foreground="#6B7280" Margin="0,0,0,2"/>
+                        <TextBlock Name="MemClean" Text="0" FontFamily="Consolas"
+                                   FontSize="18" FontWeight="Bold" Foreground="#4FF78E"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
 
-        <Grid Grid.Row="3" Background="#13161B">
+        <Rectangle Grid.Row="3" Height="1" Fill="#282D37" Margin="22,0"/>
+
+        <!-- Results list (matches main panel style) -->
+        <ListBox Name="MemList" Grid.Row="4"
+                 Background="Transparent" BorderThickness="0"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                 VirtualizingPanel.IsVirtualizing="True"
+                 ItemContainerStyle="{StaticResource ResultItem}"
+                 Margin="0,8,0,0" Padding="0"/>
+
+        <!-- Bottom action bar -->
+        <Grid Grid.Row="5" Background="#13161B" Height="56">
             <Rectangle Height="1" VerticalAlignment="Top" Fill="#282D37"/>
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="18,0">
-                <Button Name="BtnStartMem" Content="Run Memory Scan"
-                        Background="#1A1E25" Foreground="#4FF78E"
-                        BorderBrush="#2A4A38" BorderThickness="1"
-                        FontFamily="Consolas" FontSize="11"
-                        Height="32" Padding="20,0" Cursor="Hand"/>
-                <Button Name="BtnClearMem" Content="Clear"
-                        Background="#1A1E25" Foreground="#6B7280"
-                        BorderBrush="#282D37" BorderThickness="1"
-                        FontFamily="Consolas" FontSize="11"
-                        Height="32" Padding="20,0" Margin="10,0,0,0" Cursor="Hand"/>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="22,0">
+                <Button Name="BtnStartMem" Content="Run Memory Scan" Style="{StaticResource ScanBtn}"/>
+                <Button Name="BtnClearMem" Content="Clear" Style="{StaticResource ActionBtn}" Margin="10,0,0,0">
+                    <Button.Foreground>
+                        <SolidColorBrush Color="#6B7280"/>
+                    </Button.Foreground>
+                </Button>
             </StackPanel>
         </Grid>
     </Grid>
@@ -978,20 +1075,56 @@ function Open-MemoryScanWindow {
 
     $memList   = $memWin.FindName("MemList")
     $memStatus = $memWin.FindName("MemStatus")
+    $memSub    = $memWin.FindName("MemSub")
     $btnStart  = $memWin.FindName("BtnStartMem")
     $btnClear  = $memWin.FindName("BtnClearMem")
+    $brush     = [System.Windows.Media.BrushConverter]::new()
+
+    function Add-MemRow {
+        param($text, $type, $list, $br)
+        $row = New-Object System.Windows.Controls.Border
+        $row.Margin       = New-Object System.Windows.Thickness(12,2,12,0)
+        $row.CornerRadius = New-Object System.Windows.CornerRadius(4)
+        $row.Padding      = New-Object System.Windows.Thickness(10,6,10,6)
+        switch ($type) {
+            "FLAG" { $row.Background = $br.ConvertFrom("#281010"); $fg = "#F7A0A0" }
+            "WARN" { $row.Background = $br.ConvertFrom("#28200E"); $fg = "#E0B87A" }
+            "OK"   { $row.Background = $br.ConvertFrom("#0E2014"); $fg = "#7ADFAA" }
+            "HEAD" { $row.Background = $br.ConvertFrom("#1A1E25"); $fg = "#4F8EF7" }
+            default{ $row.Background = $br.ConvertFrom("#13161B"); $fg = "#9CA3AF" }
+        }
+        $tb = New-Object System.Windows.Controls.TextBlock
+        $tb.Text         = $text
+        $tb.FontFamily   = New-Object System.Windows.Media.FontFamily("Consolas")
+        $tb.FontSize     = 11
+        $tb.Foreground   = $br.ConvertFrom($fg)
+        $tb.TextWrapping = "Wrap"
+        $row.Child = $tb
+        $li = New-Object System.Windows.Controls.ListBoxItem
+        $li.Content         = $row
+        $li.Background      = [System.Windows.Media.Brushes]::Transparent
+        $li.BorderThickness = New-Object System.Windows.Thickness(0)
+        $li.Padding         = New-Object System.Windows.Thickness(0)
+        $list.Items.Add($li) | Out-Null
+    }
 
     $btnClear.Add_Click({
         $memList.Items.Clear()
         $memStatus.Text = "idle"
+        $memSub.Text    = "Scan for traces of self-destructed cheats"
     }.GetNewClosure())
 
     $btnStart.Add_Click({
         $memList.Items.Clear()
-        $memStatus.Text = "scan placeholder - logic disabled"
-        $memList.Items.Add("[INFO]  Memory scan window opened successfully") | Out-Null
-        $memList.Items.Add("[INFO]  Logic temporarily disabled while debugging") | Out-Null
-        $memList.Items.Add("[OK]    UI is working correctly") | Out-Null
+        $memStatus.Text = "demo mode"
+        $memStatus.Foreground = $brush.ConvertFrom("#4F8EF7")
+        $memSub.Text = "Demo - logic disabled while we test the UI"
+        Add-MemRow "  -- DEMO RESULTS --" "HEAD" $memList $brush
+        Add-MemRow "  [INFO]  Memory scan window opened successfully" "INFO" $memList $brush
+        Add-MemRow "  [OK]    UI styling matches main panel" "OK" $memList $brush
+        Add-MemRow "  [WARN]  Memory scan logic temporarily disabled" "WARN" $memList $brush
+        Add-MemRow "  [FLAGGED]  Test row to show flagged styling" "FLAG" $memList $brush
+        Add-MemRow "  [INFO]  Click Clear to reset, Run again to test" "INFO" $memList $brush
     }.GetNewClosure())
 
     $memWin.Show()
