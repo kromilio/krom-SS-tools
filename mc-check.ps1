@@ -851,15 +851,21 @@ function Scan-Memory {
     $SectionSub.Text   = "Scanning..."
     $window.Dispatcher.Invoke([action]{}, "Render")
 
+    # Only flag strings that indicate active self-destruct / injection behaviour
+    # NOT the client name itself — that stays in memory even after legit deletion
     $doomStrings = @(
-        "doomsday","ddclient","doomsdayclient","doom_client",
-        "wurst","meteor","liquidbounce","aristois","catlean",
-        "killaura","kill_aura","aimassist","autoclick","autoclicker",
-        "nofall","noslowdown","velocityhack","scaffoldhack",
-        "cheat","hack","inject","payload","selfdestruct","self_destruct",
-        "deleteself","cleanup","purge","obfuscated","deobf",
-        "net/minecraft/client/hack","me/doomsday","club/doomsday",
-        "javaagent","instrumentation","retransform"
+        "selfdestruct","self_destruct","selfdestructing",
+        "deleteself","delete_self","deleteonshutdown",
+        "cleanupfiles","cleanup_jar","purgefiles",
+        "Files.delete","deleteOnExit","file.deleteonexit",
+        "Runtime.exec","ProcessBuilder","cmd.exe /c del",
+        "powershell -c del","rmdir /s","rm -rf",
+        "javaagent","java.lang.instrument","Instrumentation",
+        "retransformClasses","redefineClasses",
+        "ClassFileTransformer","premain",
+        "sun.misc.Unsafe","theUnsafe",
+        "net.bytebuddy","javassist.ClassPool",
+        "org.objectweb.asm.ClassWriter"
     )
 
     $findings = @()
