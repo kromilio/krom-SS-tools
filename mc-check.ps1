@@ -808,8 +808,10 @@ $BtnScanLog.Add_Click({
     Scan-Log $logPath
 })
 
-# ── Memory Scan ────────────────────────────────────────────────────────────────
-# P/Invoke signatures for ReadProcessMemory
+# ── Memory Scan Window ────────────────────────────────────────────────────────
+# Opens as a separate WPF window so it doesn't block the main UI
+# Scan runs on a background runspace thread
+
 $memSig = @"
 using System;
 using System.Runtime.InteropServices;
@@ -818,19 +820,15 @@ public class MemAPI {
     public static extern bool ReadProcessMemory(
         IntPtr hProcess, IntPtr lpBaseAddress,
         byte[] lpBuffer, int nSize, out int lpNumberOfBytesRead);
-
     [DllImport("kernel32.dll", SetLastError=true)]
     public static extern IntPtr OpenProcess(
         uint dwDesiredAccess, bool bInheritHandle, int dwProcessId);
-
     [DllImport("kernel32.dll", SetLastError=true)]
     public static extern bool CloseHandle(IntPtr hObject);
-
     [DllImport("kernel32.dll")]
     public static extern bool VirtualQueryEx(
         IntPtr hProcess, IntPtr lpAddress,
         ref MEMORY_BASIC_INFORMATION lpBuffer, uint dwLength);
-
     [StructLayout(LayoutKind.Sequential)]
     public struct MEMORY_BASIC_INFORMATION {
         public IntPtr BaseAddress;
@@ -845,176 +843,357 @@ public class MemAPI {
 "@
 Add-Type -TypeDefinition $memSig -ErrorAction SilentlyContinue
 
-function Scan-Memory {
-    $ResultsList.Items.Clear()
-    $SectionTitle.Text = "// MEMORY SCAN"
-    $SectionSub.Text   = "Scanning..."
-    $window.Dispatcher.Invoke([action]{}, "Render")
+function Open-MemoryScanWindow {
+    [xml]$memXaml = @"
+<Window
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Memory Scan — Krom SS Tools" Height="580" Width="780"
+    MinHeight="400" MinWidth="600"
+    Background="#0D0F12" Foreground="#E8EAF0"
+    WindowStartupLocation="CenterScreen" ResizeMode="CanResize">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="48"/>
+            <RowDefinition Height="1"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="1"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
 
-    # Only flag strings that indicate active self-destruct / injection behaviour
-    # NOT the client name itself — that stays in memory even after legit deletion
-    $doomStrings = @(
-        "selfdestruct","self_destruct","selfdestructing",
-        "deleteself","delete_self","deleteonshutdown",
-        "cleanupfiles","cleanup_jar","purgefiles",
-        "Files.delete","deleteOnExit","file.deleteonexit",
-        "Runtime.exec","ProcessBuilder","cmd.exe /c del",
-        "powershell -c del","rmdir /s","rm -rf",
-        "javaagent","java.lang.instrument","Instrumentation",
-        "retransformClasses","redefineClasses",
-        "ClassFileTransformer","premain",
-        "sun.misc.Unsafe","theUnsafe",
-        "net.bytebuddy","javassist.ClassPool",
-        "org.objectweb.asm.ClassWriter"
-    )
+        <!-- Titlebar -->
+        <Grid Grid.Row="0" Background="#13161B">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="18,0,0,0">
+                <Border Background="#F74F4F" CornerRadius="5" Width="26" Height="26" Margin="0,0,10,0">
+                    <TextBlock Text="M" FontFamily="Consolas" FontWeight="Bold" FontSize="13"
+                               Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <TextBlock Text="MEMORY SCAN" FontFamily="Consolas" FontWeight="Bold" FontSize="13"
+                           Foreground="#E8EAF0" VerticalAlignment="Center"/>
+            </StackPanel>
+            <TextBlock x:Name="MemStatus" Text="● idle" FontFamily="Consolas" FontSize="10"
+                       Foreground="#6B7280" VerticalAlignment="Center"
+                       HorizontalAlignment="Right" Margin="0,0,18,0"/>
+        </Grid>
+        <Rectangle Grid.Row="1" Fill="#282D37"/>
 
-    $findings = @()
-    $memFindings = 0
-    $PROCESS_ALL_ACCESS = 0x1F0FFF
+        <!-- Info bar -->
+        <Grid Grid.Row="2" Background="#13161B" Margin="0,0,0,0">
+            <StackPanel Orientation="Horizontal" Margin="18,10,18,10">
+                <TextBlock Text="Scans: " FontFamily="Consolas" FontSize="10" Foreground="#6B7280" VerticalAlignment="Center"/>
+                <TextBlock Text="javaw.exe memory  " FontFamily="Consolas" FontSize="10" Foreground="#9CA3AF" VerticalAlignment="Center"/>
+                <TextBlock Text="•  " Foreground="#282D37" VerticalAlignment="Center"/>
+                <TextBlock Text="temp artifacts  " FontFamily="Consolas" FontSize="10" Foreground="#9CA3AF" VerticalAlignment="Center"/>
+                <TextBlock Text="•  " Foreground="#282D37" VerticalAlignment="Center"/>
+                <TextBlock Text="recent files  " FontFamily="Consolas" FontSize="10" Foreground="#9CA3AF" VerticalAlignment="Center"/>
+                <TextBlock Text="•  " Foreground="#282D37" VerticalAlignment="Center"/>
+                <TextBlock Text="registry" FontFamily="Consolas" FontSize="10" Foreground="#9CA3AF" VerticalAlignment="Center"/>
+                <TextBlock Text="   |   Requires Administrator for memory read"
+                           FontFamily="Consolas" FontSize="10" Foreground="#F7A94F" VerticalAlignment="Center"/>
+            </StackPanel>
+        </Grid>
+        <Rectangle Grid.Row="3" Fill="#282D37"/>
 
-    # ── Memory scan of javaw.exe ──
-    Add-ResultRow "  ── MEMORY STRINGS (javaw.exe) ──" "HEAD"
-    $javaProcs = Get-Process -Name "javaw" -ErrorAction SilentlyContinue
-    if (-not $javaProcs) {
-        Add-ResultRow "  [INFO]  No javaw.exe process found — start Minecraft first" "INFO"
-    } else {
-        foreach ($proc in $javaProcs) {
-            Add-ResultRow "  Scanning javaw PID $($proc.Id)..." "INFO"
-            $window.Dispatcher.Invoke([action]{}, "Render")
-            try {
-                $hProc = [MemAPI]::OpenProcess($PROCESS_ALL_ACCESS, $false, $proc.Id)
-                if ($hProc -eq [IntPtr]::Zero) {
-                    Add-ResultRow "  [WARN]  Cannot open PID $($proc.Id) — run as Administrator" "WARN"
-                    continue
-                }
-                $mbi = New-Object MemAPI+MEMORY_BASIC_INFORMATION
-                $mbiSize = [System.Runtime.InteropServices.Marshal]::SizeOf($mbi)
-                $addr = [IntPtr]::Zero
-                $hitCount = 0
+        <!-- Results -->
+        <ListBox x:Name="MemList" Grid.Row="4"
+                 Background="Transparent" BorderThickness="0"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                 VirtualizingPanel.IsVirtualizing="True"
+                 Margin="0,6,0,0" Padding="0">
+            <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem">
+                    <Setter Property="Background" Value="Transparent"/>
+                    <Setter Property="BorderThickness" Value="0"/>
+                    <Setter Property="Padding" Value="0"/>
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="ListBoxItem">
+                                <ContentPresenter/>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+            </ListBox.ItemContainerStyle>
+        </ListBox>
 
-                while ([MemAPI]::VirtualQueryEx($hProc, $addr, [ref]$mbi, $mbiSize)) {
-                    # Only scan committed, readable, non-image pages
-                    if ($mbi.State -eq 0x1000 -and ($mbi.Protect -band 0x02 -or $mbi.Protect -band 0x04 -or $mbi.Protect -band 0x20 -or $mbi.Protect -band 0x40)) {
-                        $size = $mbi.RegionSize.ToInt64()
-                        if ($size -gt 0 -and $size -lt 50MB) {
-                            $buf = New-Object byte[] $size
-                            $read = 0
-                            if ([MemAPI]::ReadProcessMemory($hProc, $mbi.BaseAddress, $buf, $size, [ref]$read) -and $read -gt 0) {
-                                $text = [System.Text.Encoding]::ASCII.GetString($buf, 0, $read)
-                                foreach ($sig in $doomStrings) {
-                                    if ($text -match [regex]::Escape($sig)) {
-                                        Add-ResultRow "  [FLAGGED]  PID $($proc.Id)  ->  found string: '$sig'" "FLAG"
-                                        $hitCount++
-                                        $memFindings++
-                                        break
+        <!-- Bottom bar -->
+        <Grid Grid.Row="5" Background="#13161B" Height="52">
+            <Rectangle Height="1" VerticalAlignment="Top" Fill="#282D37"/>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="18,0,18,0">
+                <Button x:Name="BtnStartMemScan" Content="  Run Memory Scan"
+                        FontFamily="Consolas" FontSize="11"
+                        Background="#1A1E25" Foreground="#4FF78E"
+                        BorderBrush="#2A4A38" BorderThickness="1"
+                        Height="32" Padding="16,0" Cursor="Hand">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="4">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="#1F2A22"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+                <Button x:Name="BtnClearMem" Content="  Clear"
+                        FontFamily="Consolas" FontSize="11"
+                        Background="#1A1E25" Foreground="#6B7280"
+                        BorderBrush="#282D37" BorderThickness="1"
+                        Height="32" Padding="16,0" Cursor="Hand" Margin="8,0,0,0">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="4">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+                <TextBlock x:Name="MemSummary" Text="" FontFamily="Consolas" FontSize="10"
+                           Foreground="#6B7280" VerticalAlignment="Center" Margin="16,0,0,0"/>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>
+"@
+
+    $memReader = New-Object System.Xml.XmlNodeReader $memXaml
+    $memWin    = [Windows.Markup.XamlReader]::Load($memReader)
+
+    $MemList         = $memWin.FindName("MemList")
+    $MemStatus       = $memWin.FindName("MemStatus")
+    $MemSummary      = $memWin.FindName("MemSummary")
+    $BtnStartMemScan = $memWin.FindName("BtnStartMemScan")
+    $BtnClearMem     = $memWin.FindName("BtnClearMem")
+
+    $brush = [System.Windows.Media.BrushConverter]::new()
+
+    function Add-MemRow($text, $type) {
+        $row = New-Object System.Windows.Controls.Border
+        $row.Margin      = New-Object System.Windows.Thickness(12,2,12,0)
+        $row.CornerRadius = New-Object System.Windows.CornerRadius(4)
+        $row.Padding     = New-Object System.Windows.Thickness(10,6,10,6)
+        switch ($type) {
+            "FLAG" { $row.Background = $brush.ConvertFrom("#281010"); $fg = "#F7A0A0" }
+            "WARN" { $row.Background = $brush.ConvertFrom("#28200E"); $fg = "#E0B87A" }
+            "OK"   { $row.Background = $brush.ConvertFrom("#0E2014"); $fg = "#7ADFAA" }
+            "HEAD" { $row.Background = $brush.ConvertFrom("#1A1E25"); $fg = "#4F8EF7" }
+            default{ $row.Background = $brush.ConvertFrom("#13161B"); $fg = "#6B7280" }
+        }
+        $tb = New-Object System.Windows.Controls.TextBlock
+        $tb.Text        = $text
+        $tb.FontFamily  = New-Object System.Windows.Media.FontFamily("Consolas")
+        $tb.FontSize    = 11
+        $tb.Foreground  = $brush.ConvertFrom($fg)
+        $tb.TextWrapping = "Wrap"
+        $row.Child = $tb
+        $item = New-Object System.Windows.Controls.ListBoxItem
+        $item.Content         = $row
+        $item.Background      = [System.Windows.Media.Brushes]::Transparent
+        $item.BorderThickness = New-Object System.Windows.Thickness(0)
+        $item.Padding         = New-Object System.Windows.Thickness(0)
+        $MemList.Items.Add($item) | Out-Null
+    }
+
+    $BtnClearMem.Add_Click({
+        $MemList.Items.Clear()
+        $MemSummary.Text  = ""
+        $MemStatus.Text   = "● idle"
+        $MemStatus.Foreground = $brush.ConvertFrom("#6B7280")
+    })
+
+    $BtnStartMemScan.Add_Click({
+        $BtnStartMemScan.IsEnabled = $false
+        $MemList.Items.Clear()
+        $MemStatus.Text       = "● scanning..."
+        $MemStatus.Foreground = $brush.ConvertFrom("#F7A94F")
+        $MemSummary.Text      = ""
+        $memWin.Dispatcher.Invoke([action]{}, "Render")
+
+        $doomStrings = @(
+            "selfdestruct","self_destruct","selfdestructing",
+            "deleteself","delete_self","deleteonshutdown",
+            "cleanupfiles","cleanup_jar","purgefiles",
+            "Files.delete","deleteOnExit","file.deleteonexit",
+            "Runtime.exec","ProcessBuilder","cmd.exe /c del",
+            "powershell -c del","rmdir /s","rm -rf",
+            "javaagent","java.lang.instrument","Instrumentation",
+            "retransformClasses","redefineClasses",
+            "ClassFileTransformer","premain",
+            "sun.misc.Unsafe","theUnsafe",
+            "net.bytebuddy","javassist.ClassPool",
+            "org.objectweb.asm.ClassWriter"
+        )
+
+        $totalFound = 0
+
+        # ── Memory strings ──
+        $memWin.Dispatcher.Invoke([action]{ Add-MemRow "  ── MEMORY STRINGS (javaw.exe) ──" "HEAD" }, "Normal")
+        $javaProcs = Get-Process -Name "javaw" -ErrorAction SilentlyContinue
+        if (-not $javaProcs) {
+            $memWin.Dispatcher.Invoke([action]{ Add-MemRow "  [INFO]  No javaw.exe running — start Minecraft first" "INFO" }, "Normal")
+        } else {
+            $PROCESS_ALL_ACCESS = 0x1F0FFF
+            foreach ($proc in $javaProcs) {
+                $pid = $proc.Id
+                $memWin.Dispatcher.Invoke([action]{ Add-MemRow "  Scanning PID $pid..." "INFO" }.GetNewClosure(), "Normal")
+                $memWin.Dispatcher.Invoke([action]{}, "Render")
+                try {
+                    $hProc = [MemAPI]::OpenProcess($PROCESS_ALL_ACCESS, $false, $pid)
+                    if ($hProc -eq [IntPtr]::Zero) {
+                        $memWin.Dispatcher.Invoke([action]{ Add-MemRow "  [WARN]  Cannot open PID $pid — run as Administrator" "WARN" }.GetNewClosure(), "Normal")
+                        continue
+                    }
+                    $mbi     = New-Object MemAPI+MEMORY_BASIC_INFORMATION
+                    $mbiSize = [System.Runtime.InteropServices.Marshal]::SizeOf($mbi)
+                    $addr    = [IntPtr]::Zero
+                    $hitCount = 0
+
+                    while ([MemAPI]::VirtualQueryEx($hProc, $addr, [ref]$mbi, $mbiSize)) {
+                        if ($mbi.State -eq 0x1000 -and ($mbi.Protect -band 0x02 -or $mbi.Protect -band 0x04 -or $mbi.Protect -band 0x20 -or $mbi.Protect -band 0x40)) {
+                            $size = $mbi.RegionSize.ToInt64()
+                            if ($size -gt 0 -and $size -lt 50MB) {
+                                $buf  = New-Object byte[] $size
+                                $read = 0
+                                if ([MemAPI]::ReadProcessMemory($hProc, $mbi.BaseAddress, $buf, $size, [ref]$read) -and $read -gt 0) {
+                                    $text = [System.Text.Encoding]::ASCII.GetString($buf, 0, $read)
+                                    foreach ($sig in $doomStrings) {
+                                        if ($text -match [regex]::Escape($sig)) {
+                                            $s = $sig
+                                            $memWin.Dispatcher.Invoke([action]{ Add-MemRow "  [FLAGGED]  PID $pid  ->  string: '$s'" "FLAG" }.GetNewClosure(), "Normal")
+                                            $hitCount++; $totalFound++
+                                            break
+                                        }
                                     }
                                 }
                             }
                         }
+                        $next = $mbi.BaseAddress.ToInt64() + $mbi.RegionSize.ToInt64()
+                        if ($next -le 0) { break }
+                        try { $addr = [IntPtr]::new($next) } catch { break }
                     }
-                    $next = $mbi.BaseAddress.ToInt64() + $mbi.RegionSize.ToInt64()
-                    if ($next -le 0) { break }
-                    try { $addr = [IntPtr]::new($next) } catch { break }
-                }
-                [MemAPI]::CloseHandle($hProc) | Out-Null
-                if ($hitCount -eq 0) {
-                    Add-ResultRow "  [OK]  PID $($proc.Id)  ->  no suspicious strings found" "OK"
-                }
-            } catch {
-                Add-ResultRow "  [WARN]  Error scanning PID $($proc.Id): $($_.Exception.Message)" "WARN"
-            }
-        }
-    }
-
-    # ── Temp folder artifacts ──
-    Add-ResultRow "  ── TEMP FOLDER ARTIFACTS ──" "HEAD"
-    $tempPaths = @($env:TEMP, "$env:LOCALAPPDATA\Temp", "$env:APPDATA\.minecraft\crash-reports")
-    $suspExts  = @("*.jar","*.tmp","*.class","*.so","*.dll")
-    $tempFound = 0
-    foreach ($tp in $tempPaths) {
-        if (-not (Test-Path $tp)) { continue }
-        foreach ($ext in $suspExts) {
-            $files = Get-ChildItem $tp -Filter $ext -ErrorAction SilentlyContinue |
-                Where-Object { $_.LastWriteTime -gt (Get-Date).AddDays(-30) }
-            foreach ($f in $files) {
-                $isSusp = $false
-                foreach ($sig in @("doomsday","ddclient","cheat","hack","inject","wurst","meteor")) {
-                    if ($f.Name -match $sig) { $isSusp = $true; break }
-                }
-                # Flag random-named jars in temp (same gibberish logic)
-                $bn = ($f.BaseName -replace "[^a-zA-Z]","")
-                if ($bn.Length -lt 3 -and $f.Extension -eq ".jar") { $isSusp = $true }
-                if ($isSusp) {
-                    Add-ResultRow "  [FLAGGED]  $($f.FullName)  |  $($f.LastWriteTime.ToString('yyyy-MM-dd HH:mm'))" "FLAG"
-                    $tempFound++
-                } else {
-                    Add-ResultRow "  [WARN]  $($f.Name)  |  $($f.LastWriteTime.ToString('yyyy-MM-dd HH:mm'))" "WARN"
+                    [MemAPI]::CloseHandle($hProc) | Out-Null
+                    if ($hitCount -eq 0) {
+                        $memWin.Dispatcher.Invoke([action]{ Add-MemRow "  [OK]  PID $pid  ->  no suspicious strings found" "OK" }.GetNewClosure(), "Normal")
+                    }
+                } catch {
+                    $err = $_.Exception.Message
+                    $memWin.Dispatcher.Invoke([action]{ Add-MemRow "  [WARN]  Error scanning PID $pid`: $err" "WARN" }.GetNewClosure(), "Normal")
                 }
             }
         }
-    }
-    if ($tempFound -eq 0) { Add-ResultRow "  [OK]  No suspicious temp artifacts found" "OK" }
 
-    # ── Recent files ──
-    Add-ResultRow "  ── RECENT FILES (Shell:Recent) ──" "HEAD"
-    $recentPath = "$env:APPDATA\Microsoft\Windows\Recent"
-    if (Test-Path $recentPath) {
-        $recentFiles = Get-ChildItem $recentPath -ErrorAction SilentlyContinue |
-            Where-Object { $_.LastWriteTime -gt (Get-Date).AddDays(-14) } |
-            Sort-Object LastWriteTime -Descending
-        $recentFlags = 0
-        foreach ($rf in $recentFiles) {
-            $lower = $rf.Name.ToLower()
-            foreach ($sig in @("doomsday","ddclient","cheat","hack","wurst","meteor","inject","liquidbounce")) {
-                if ($lower -match $sig) {
-                    Add-ResultRow "  [FLAGGED]  $($rf.Name)  |  $($rf.LastWriteTime.ToString('yyyy-MM-dd HH:mm'))" "FLAG"
-                    $recentFlags++
-                    break
+        # ── Temp artifacts ──
+        $memWin.Dispatcher.Invoke([action]{ Add-MemRow "  ── TEMP FOLDER ARTIFACTS ──" "HEAD" }, "Normal")
+        $tempPaths = @($env:TEMP, "$env:LOCALAPPDATA\Temp", "$env:APPDATA\.minecraft\crash-reports")
+        $tempFound = 0
+        foreach ($tp in $tempPaths) {
+            if (-not (Test-Path $tp)) { continue }
+            foreach ($ext in @("*.jar","*.tmp","*.class","*.dll")) {
+                $files = Get-ChildItem $tp -Filter $ext -ErrorAction SilentlyContinue |
+                    Where-Object { $_.LastWriteTime -gt (Get-Date).AddDays(-30) }
+                foreach ($f in $files) {
+                    $isSusp = $false
+                    foreach ($sig in @("doomsday","ddclient","cheat","hack","inject","wurst","meteor")) {
+                        if ($f.Name -match $sig) { $isSusp = $true; break }
+                    }
+                    $bn = ($f.BaseName -replace "[^a-zA-Z]","")
+                    if ($bn.Length -lt 3 -and $f.Extension -eq ".jar") { $isSusp = $true }
+                    $fn = $f.FullName; $ft = $f.LastWriteTime.ToString("yyyy-MM-dd HH:mm")
+                    if ($isSusp) {
+                        $memWin.Dispatcher.Invoke([action]{ Add-MemRow "  [FLAGGED]  $fn  |  $ft" "FLAG" }.GetNewClosure(), "Normal")
+                        $tempFound++; $totalFound++
+                    } else {
+                        $memWin.Dispatcher.Invoke([action]{ Add-MemRow "  [WARN]  $fn  |  $ft" "WARN" }.GetNewClosure(), "Normal")
+                    }
                 }
             }
         }
-        Add-ResultRow "  [INFO]  $($recentFiles.Count) recent entries checked, $recentFlags flagged" "INFO"
-    } else {
-        Add-ResultRow "  [WARN]  Recent files folder not accessible" "WARN"
-    }
+        if ($tempFound -eq 0) {
+            $memWin.Dispatcher.Invoke([action]{ Add-MemRow "  [OK]  No suspicious temp artifacts found" "OK" }, "Normal")
+        }
 
-    # ── Registry ──
-    Add-ResultRow "  ── REGISTRY CHECK ──" "HEAD"
-    $regPaths = @(
-        "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run",
-        "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run",
-        "HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce",
-        "HKCU:\Software\Classes",
-        "HKCU:\Software\JavaSoft",
-        "HKLM:\Software\JavaSoft"
-    )
-    $regFlags = 0
-    foreach ($rp in $regPaths) {
-        if (-not (Test-Path $rp)) { continue }
-        try {
-            $vals = Get-ItemProperty $rp -ErrorAction SilentlyContinue
-            if ($vals) {
-                $vals.PSObject.Properties | Where-Object { $_.Name -notmatch "^PS" } | ForEach-Object {
-                    $valStr = "$($_.Name) = $($_.Value)"
-                    $lower  = $valStr.ToLower()
-                    foreach ($sig in @("doomsday","ddclient","cheat","hack","inject","wurst","meteor","liquidbounce","javaagent")) {
-                        if ($lower -match $sig) {
-                            Add-ResultRow "  [FLAGGED]  $rp  ->  $valStr" "FLAG"
-                            $regFlags++
-                            break
+        # ── Recent files ──
+        $memWin.Dispatcher.Invoke([action]{ Add-MemRow "  ── RECENT FILES ──" "HEAD" }, "Normal")
+        $recentPath = "$env:APPDATA\Microsoft\Windows\Recent"
+        if (Test-Path $recentPath) {
+            $recentFiles = Get-ChildItem $recentPath -ErrorAction SilentlyContinue |
+                Where-Object { $_.LastWriteTime -gt (Get-Date).AddDays(-14) } |
+                Sort-Object LastWriteTime -Descending
+            $recentFlags = 0
+            foreach ($rf in $recentFiles) {
+                $lower = $rf.Name.ToLower()
+                foreach ($sig in @("doomsday","ddclient","cheat","hack","wurst","meteor","inject","liquidbounce")) {
+                    if ($lower -match $sig) {
+                        $rn = $rf.Name; $rt = $rf.LastWriteTime.ToString("yyyy-MM-dd HH:mm")
+                        $memWin.Dispatcher.Invoke([action]{ Add-MemRow "  [FLAGGED]  $rn  |  $rt" "FLAG" }.GetNewClosure(), "Normal")
+                        $recentFlags++; $totalFound++; break
+                    }
+                }
+            }
+            $rc = $recentFiles.Count
+            $memWin.Dispatcher.Invoke([action]{ Add-MemRow "  [INFO]  $rc recent entries checked, $recentFlags flagged" "INFO" }.GetNewClosure(), "Normal")
+        } else {
+            $memWin.Dispatcher.Invoke([action]{ Add-MemRow "  [WARN]  Recent files folder not accessible" "WARN" }, "Normal")
+        }
+
+        # ── Registry ──
+        $memWin.Dispatcher.Invoke([action]{ Add-MemRow "  ── REGISTRY CHECK ──" "HEAD" }, "Normal")
+        $regPaths = @(
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run",
+            "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run",
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce",
+            "HKCU:\Software\JavaSoft",
+            "HKLM:\Software\JavaSoft"
+        )
+        $regFlags = 0
+        foreach ($rp in $regPaths) {
+            if (-not (Test-Path $rp)) { continue }
+            try {
+                $vals = Get-ItemProperty $rp -ErrorAction SilentlyContinue
+                if ($vals) {
+                    $vals.PSObject.Properties | Where-Object { $_.Name -notmatch "^PS" } | ForEach-Object {
+                        $valStr = "$($_.Name) = $($_.Value)"
+                        $lower  = $valStr.ToLower()
+                        foreach ($sig in @("doomsday","ddclient","cheat","hack","inject","wurst","meteor","javaagent")) {
+                            if ($lower -match $sig) {
+                                $rv = $valStr; $rpath = $rp
+                                $memWin.Dispatcher.Invoke([action]{ Add-MemRow "  [FLAGGED]  $rpath  ->  $rv" "FLAG" }.GetNewClosure(), "Normal")
+                                $regFlags++; $totalFound++; break
+                            }
                         }
                     }
                 }
-            }
-        } catch {}
-    }
-    if ($regFlags -eq 0) { Add-ResultRow "  [OK]  No suspicious registry entries found" "OK" }
+            } catch {}
+        }
+        if ($regFlags -eq 0) {
+            $memWin.Dispatcher.Invoke([action]{ Add-MemRow "  [OK]  No suspicious registry entries found" "OK" }, "Normal")
+        }
 
-    $totalFound = $memFindings + $tempFound + $regFlags
-    $SectionSub.Text = "Scan complete — $totalFound suspicious finding(s)"
+        # ── Done ──
+        $tf = $totalFound
+        $memWin.Dispatcher.Invoke([action]{
+            $MemStatus.Text       = if ($tf -gt 0) { "● $tf finding(s)" } else { "● clean" }
+            $MemStatus.Foreground = if ($tf -gt 0) { $brush.ConvertFrom("#F74F4F") } else { $brush.ConvertFrom("#4FF78E") }
+            $MemSummary.Text      = "Scan complete — $tf suspicious finding(s)"
+            $BtnStartMemScan.IsEnabled = $true
+        }.GetNewClosure(), "Normal")
+    })
+
+    # Run the window on its own thread so it doesn't block main UI
+    $memWin.Show()
 }
 
-$NavBtns["MEMORY SCAN"].Add_Click({ Scan-Memory })
+$NavBtns["MEMORY SCAN"].Add_Click({ Open-MemoryScanWindow })
 
 $BtnRescan.Add_Click({ Start-Scan })
 
