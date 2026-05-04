@@ -1,41 +1,19 @@
-# Krom SS Tools - PowerShell GUI
+# Krom SS Tools - WPF GUI
 # Usage: irm https://raw.githubusercontent.com/kromilio/krom-ss-tools/main/mc-check.ps1 | iex
 
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName PresentationFramework
+Add-Type -AssemblyName PresentationCore
+Add-Type -AssemblyName WindowsBase
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-[System.Windows.Forms.Application]::EnableVisualStyles()
 
-$c = @{
-    Bg     = [System.Drawing.Color]::FromArgb(13,15,18)
-    Bg2    = [System.Drawing.Color]::FromArgb(19,22,27)
-    Bg3    = [System.Drawing.Color]::FromArgb(26,30,37)
-    Border = [System.Drawing.Color]::FromArgb(40,45,55)
-    Accent = [System.Drawing.Color]::FromArgb(79,142,247)
-    Text   = [System.Drawing.Color]::FromArgb(232,234,240)
-    Muted  = [System.Drawing.Color]::FromArgb(107,114,128)
-    Red    = [System.Drawing.Color]::FromArgb(247,79,79)
-    Amber  = [System.Drawing.Color]::FromArgb(247,169,79)
-    Green  = [System.Drawing.Color]::FromArgb(79,247,142)
-}
-
-$fontMono   = New-Object System.Drawing.Font("Consolas", 9)
-$fontMonoSm = New-Object System.Drawing.Font("Consolas", 8)
-$fontMonoLg = New-Object System.Drawing.Font("Consolas", 11, [System.Drawing.FontStyle]::Bold)
-$fontSans   = New-Object System.Drawing.Font("Segoe UI", 9)
-$fontSansSm = New-Object System.Drawing.Font("Segoe UI", 8)
-
-$global:ScanResults    = [ordered]@{}
-$global:ActiveSection  = "OVERVIEW"
 $global:CustomModsPath = "$env:APPDATA\.minecraft\mods"
+$global:ScanResults    = [ordered]@{}
 
 # ── Checks ─────────────────────────────────────────────────────────────────────
-function Run-Checks {
+function Run-Checks($modsFolder) {
     $results     = [ordered]@{}
     $knownCheats = @("wurst","meteor","liquidbounce","aristois","sigma","impact","future","inertia","novoline","xaero","baritone","nodus","vape","huzuni","wolfram","rusherhack")
-    $modsFolder  = $global:CustomModsPath
 
-    # MOD SCANNER
     $s = "MOD SCANNER"; $results[$s] = @()
     if (Test-Path $modsFolder) {
         $jars = Get-ChildItem $modsFolder -Filter "*.jar" -ErrorAction SilentlyContinue
@@ -46,7 +24,7 @@ function Run-Checks {
                 $flagged = $false
                 foreach ($cheat in $knownCheats) {
                     if ($jar.Name -match $cheat) {
-                        $results[$s] += @{ Line="[FLAGGED]  $($jar.Name)  ->  matches '$cheat'"; Type="FLAG" }
+                        $results[$s] += @{ Line="[FLAGGED]  $($jar.Name)  ->  '$cheat'"; Type="FLAG" }
                         $flagged = $true; break
                     }
                 }
@@ -59,7 +37,6 @@ function Run-Checks {
         $results[$s] += @{ Line="Path not found: $modsFolder"; Type="WARN" }
     }
 
-    # RENAMED JARS
     $s = "RENAMED JARS"; $results[$s] = @()
     if (Test-Path $modsFolder) {
         $jars = Get-ChildItem $modsFolder -Filter "*.jar" -ErrorAction SilentlyContinue
@@ -81,14 +58,14 @@ function Run-Checks {
                                 $results[$s] += @{ Line="[OK]  $($jar.Name)  ->  '$id'"; Type="OK" }
                             }
                         } else {
-                            $results[$s] += @{ Line="[WARN]  $($jar.Name)  ->  no mod ID in manifest"; Type="WARN" }
+                            $results[$s] += @{ Line="[WARN]  $($jar.Name)  ->  no mod ID found"; Type="WARN" }
                         }
                     } else {
-                        $results[$s] += @{ Line="[WARN]  $($jar.Name)  ->  no manifest found"; Type="WARN" }
+                        $results[$s] += @{ Line="[WARN]  $($jar.Name)  ->  no manifest"; Type="WARN" }
                     }
                     $zip.Dispose()
                 } catch {
-                    $results[$s] += @{ Line="[WARN]  $($jar.Name)  ->  could not read jar"; Type="WARN" }
+                    $results[$s] += @{ Line="[WARN]  $($jar.Name)  ->  unreadable"; Type="WARN" }
                 }
             }
         }
@@ -96,12 +73,10 @@ function Run-Checks {
         $results[$s] += @{ Line="No mods folder to check"; Type="OK" }
     }
 
-    # RECYCLE BIN
     $s = "RECYCLE BIN"; $results[$s] = @()
     try {
         $shell = New-Object -ComObject Shell.Application
-        $bin   = $shell.Namespace(0xA)
-        $items = $bin.Items()
+        $items = $shell.Namespace(0xA).Items()
         if ($items.Count -eq 0) {
             $results[$s] += @{ Line="Recycle bin is empty"; Type="OK" }
         } else {
@@ -117,7 +92,6 @@ function Run-Checks {
         $results[$s] += @{ Line="[WARN]  Could not read recycle bin"; Type="WARN" }
     }
 
-    # DELETED FILES
     $s = "DELETED FILES"; $results[$s] = @()
     try {
         $events = Get-WinEvent -LogName Security -FilterXPath "*[System[EventID=4663]]" -MaxEvents 100 -ErrorAction Stop
@@ -132,10 +106,9 @@ function Run-Checks {
             }
         }
     } catch {
-        $results[$s] += @{ Line="[WARN]  Run as Administrator for event log access"; Type="WARN" }
+        $results[$s] += @{ Line="[WARN]  Run as Administrator for event log"; Type="WARN" }
     }
 
-    # RECENTLY MODIFIED
     $s = "RECENT CHANGES"; $results[$s] = @()
     $mcPath = "$env:APPDATA\.minecraft"
     if (Test-Path $mcPath) {
@@ -155,340 +128,449 @@ function Run-Checks {
     return $results
 }
 
-# ── Form ───────────────────────────────────────────────────────────────────────
-$form = New-Object System.Windows.Forms.Form
-$form.Text          = "Krom SS Tools"
-$form.Size          = New-Object System.Drawing.Size(920, 620)
-$form.MinimumSize   = New-Object System.Drawing.Size(700, 500)
-$form.BackColor     = $c.Bg
-$form.ForeColor     = $c.Text
-$form.Font          = $fontSans
-$form.StartPosition = "CenterScreen"
+# ── XAML ───────────────────────────────────────────────────────────────────────
+[xml]$xaml = @"
+<Window
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Krom SS Tools" Height="640" Width="980" MinHeight="500" MinWidth="750"
+    Background="#0D0F12" Foreground="#E8EAF0"
+    WindowStartupLocation="CenterScreen" ResizeMode="CanResize">
 
-# ── Titlebar (Dock Top) ────────────────────────────────────────────────────────
-$titlePanel           = New-Object System.Windows.Forms.Panel
-$titlePanel.Dock      = "Top"
-$titlePanel.Height    = 46
-$titlePanel.BackColor = $c.Bg2
-$form.Controls.Add($titlePanel)
+    <Window.Resources>
+        <Style x:Key="NavBtn" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#6B7280"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="FontFamily" Value="Segoe UI"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Padding" Value="16,0,0,0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border" Background="{TemplateBinding Background}"
+                                BorderThickness="2,0,0,0" BorderBrush="Transparent">
+                            <ContentPresenter Margin="{TemplateBinding Padding}"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#1A1E25"/>
+                                <Setter Property="Foreground" Value="#E8EAF0"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
-$titleLabel          = New-Object System.Windows.Forms.Label
-$titleLabel.Text     = "KROM SS TOOLS"
-$titleLabel.Font     = $fontMonoLg
-$titleLabel.ForeColor = $c.Accent
-$titleLabel.AutoSize = $true
-$titleLabel.Location = New-Object System.Drawing.Point(16, 12)
-$titlePanel.Controls.Add($titleLabel)
+        <Style x:Key="NavBtnActive" TargetType="Button" BasedOn="{StaticResource NavBtn}">
+            <Setter Property="Background" Value="#1A1E25"/>
+            <Setter Property="Foreground" Value="#E8EAF0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="#1A1E25" BorderThickness="2,0,0,0" BorderBrush="#4F8EF7">
+                            <ContentPresenter Margin="{TemplateBinding Padding}" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
-$verLabel           = New-Object System.Windows.Forms.Label
-$verLabel.Text      = "v1.0"
-$verLabel.Font      = $fontMonoSm
-$verLabel.ForeColor = $c.Muted
-$verLabel.AutoSize  = $true
-$verLabel.Location  = New-Object System.Drawing.Point(178, 16)
-$titlePanel.Controls.Add($verLabel)
+        <Style x:Key="ActionBtn" TargetType="Button">
+            <Setter Property="Background" Value="#13161B"/>
+            <Setter Property="Foreground" Value="#4F8EF7"/>
+            <Setter Property="BorderBrush" Value="#282D37"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontFamily" Value="Consolas"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="Padding" Value="14,0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#1A1E25"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
-$statusLabel          = New-Object System.Windows.Forms.Label
-$statusLabel.Text     = "● scanning..."
-$statusLabel.Font     = $fontMonoSm
-$statusLabel.ForeColor = $c.Amber
-$statusLabel.AutoSize = $true
-$statusLabel.Anchor   = [System.Windows.Forms.AnchorStyles]"Top,Right"
-$statusLabel.Location = New-Object System.Drawing.Point(780, 16)
-$titlePanel.Controls.Add($statusLabel)
+        <Style x:Key="ScanBtn" TargetType="Button" BasedOn="{StaticResource ActionBtn}">
+            <Setter Property="Foreground" Value="#4FF78E"/>
+            <Setter Property="BorderBrush" Value="#2A4A38"/>
+        </Style>
 
-$titleBorder           = New-Object System.Windows.Forms.Panel
-$titleBorder.Dock      = "Top"
-$titleBorder.Height    = 1
-$titleBorder.BackColor = $c.Border
-$form.Controls.Add($titleBorder)
+        <Style x:Key="PathBox" TargetType="TextBox">
+            <Setter Property="Background" Value="#1A1E25"/>
+            <Setter Property="Foreground" Value="#E8EAF0"/>
+            <Setter Property="BorderBrush" Value="#282D37"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontFamily" Value="Consolas"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="Padding" Value="8,0"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="CaretBrush" Value="#4F8EF7"/>
+        </Style>
 
-# ── Sidebar (Dock Left) ────────────────────────────────────────────────────────
-# Add Fill panel FIRST, then Left panels — WinForms docking order matters
-# We add sidebar last so it claims Left correctly
+        <Style x:Key="ResultItem" TargetType="ListBoxItem">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <ContentPresenter/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
 
-# Sidebar border
-$sidebarBorder           = New-Object System.Windows.Forms.Panel
-$sidebarBorder.Dock      = "Left"
-$sidebarBorder.Width     = 1
-$sidebarBorder.BackColor = $c.Border
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="48"/>
+            <RowDefinition Height="1"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
 
-# Sidebar
-$sidebar           = New-Object System.Windows.Forms.Panel
-$sidebar.Dock      = "Left"
-$sidebar.Width     = 190
-$sidebar.BackColor = $c.Bg2
+        <!-- Titlebar -->
+        <Grid Grid.Row="0" Background="#13161B">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="18,0,0,0">
+                <Border Background="#4F8EF7" CornerRadius="5" Width="26" Height="26" Margin="0,0,10,0">
+                    <TextBlock Text="K" FontFamily="Consolas" FontWeight="Bold" FontSize="13"
+                               Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <TextBlock Text="KROM " FontFamily="Consolas" FontWeight="Bold" FontSize="13"
+                           Foreground="#4F8EF7" VerticalAlignment="Center"/>
+                <TextBlock Text="SS TOOLS" FontFamily="Consolas" FontWeight="Bold" FontSize="13"
+                           Foreground="#E8EAF0" VerticalAlignment="Center"/>
+                <Border Background="#1A1E25" BorderBrush="#282D37" BorderThickness="1"
+                        CornerRadius="3" Margin="10,0,0,0" Padding="6,2">
+                    <TextBlock Text="v1.0" FontFamily="Consolas" FontSize="9" Foreground="#6B7280"/>
+                </Border>
+            </StackPanel>
+            <TextBlock x:Name="StatusLabel" Text="● scanning..." FontFamily="Consolas" FontSize="10"
+                       Foreground="#F7A94F" VerticalAlignment="Center" HorizontalAlignment="Right"
+                       Margin="0,0,18,0"/>
+        </Grid>
 
-# Nav label
-$navLabel          = New-Object System.Windows.Forms.Label
-$navLabel.Text     = "  CHECKS"
-$navLabel.Font     = New-Object System.Drawing.Font("Consolas", 7)
-$navLabel.ForeColor = $c.Muted
-$navLabel.Location = New-Object System.Drawing.Point(0, 10)
-$navLabel.Size     = New-Object System.Drawing.Size(190, 20)
-$sidebar.Controls.Add($navLabel)
+        <!-- Title border -->
+        <Rectangle Grid.Row="1" Fill="#282D37"/>
 
-# Nav buttons
-$global:NavButtons = @{}
-function New-NavButton($label, $yPos, $key) {
-    $btn = New-Object System.Windows.Forms.Button
-    $btn.Text      = "  $label"
-    $btn.FlatStyle = "Flat"
-    $btn.FlatAppearance.BorderSize = 0
-    $btn.FlatAppearance.MouseOverBackColor  = $c.Bg3
-    $btn.FlatAppearance.MouseDownBackColor  = $c.Bg3
-    $btn.BackColor  = $c.Bg2
-    $btn.ForeColor  = $c.Muted
-    $btn.Font       = $fontSans
-    $btn.TextAlign  = "MiddleLeft"
-    $btn.Location   = New-Object System.Drawing.Point(0, $yPos)
-    $btn.Size       = New-Object System.Drawing.Size(190, 34)
-    $btn.Cursor     = "Hand"
-    $btn.Tag        = $key
-    $btn.Add_Click({
-        param($s, $e)
-        foreach ($b in $global:NavButtons.Values) { $b.BackColor = $c.Bg2 }
-        $s.BackColor = $c.Bg3
-        Show-Section $s.Tag
-    })
-    $sidebar.Controls.Add($btn)
-    $global:NavButtons[$key] = $btn
+        <!-- Main layout -->
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="195"/>
+                <ColumnDefinition Width="1"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Sidebar -->
+            <Grid Grid.Column="0" Background="#13161B">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0" Margin="0,12,0,0">
+                    <TextBlock Text="  CHECKS" FontFamily="Consolas" FontSize="8"
+                               Foreground="#6B7280" Margin="0,0,0,6" LetterSpacing="2"/>
+
+                    <Button x:Name="BtnOverview"      Content="  Overview"       Style="{StaticResource NavBtnActive}" Tag="OVERVIEW"/>
+                    <Button x:Name="BtnModScanner"    Content="  Mod Scanner"    Style="{StaticResource NavBtn}"       Tag="MOD SCANNER"/>
+                    <Button x:Name="BtnRenamedJars"   Content="  Renamed Jars"   Style="{StaticResource NavBtn}"       Tag="RENAMED JARS"/>
+                    <Button x:Name="BtnRecycleBin"    Content="  Recycle Bin"    Style="{StaticResource NavBtn}"       Tag="RECYCLE BIN"/>
+                    <Button x:Name="BtnDeletedFiles"  Content="  Deleted Files"  Style="{StaticResource NavBtn}"       Tag="DELETED FILES"/>
+                    <Button x:Name="BtnRecentChanges" Content="  Recent Changes" Style="{StaticResource NavBtn}"       Tag="RECENT CHANGES"/>
+
+                    <Rectangle Height="1" Fill="#282D37" Margin="12,10"/>
+                </StackPanel>
+
+                <Button x:Name="BtnRescan" Grid.Row="1" Content="↺  Rescan"
+                        Style="{StaticResource ActionBtn}" Margin="12,0,12,14" Height="32"/>
+            </Grid>
+
+            <!-- Sidebar border -->
+            <Rectangle Grid.Column="1" Fill="#282D37"/>
+
+            <!-- Content area -->
+            <Grid Grid.Column="2" x:Name="ContentGrid">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- Section header -->
+                <Grid Grid.Row="0" Margin="22,18,22,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock x:Name="SectionTitle" Text="// OVERVIEW"
+                                   FontFamily="Consolas" FontWeight="Bold" FontSize="15"
+                                   Foreground="#E8EAF0"/>
+                        <TextBlock x:Name="SectionSub" Text="All scan results"
+                                   FontFamily="Segoe UI" FontSize="11" Foreground="#6B7280" Margin="0,3,0,0"/>
+                    </StackPanel>
+
+                    <!-- Mini overview card top right -->
+                    <Border Grid.Column="1" x:Name="MiniCard" Background="#13161B"
+                            BorderBrush="#282D37" BorderThickness="1" CornerRadius="6"
+                            Padding="14,8" VerticalAlignment="Top">
+                        <StackPanel Orientation="Horizontal">
+                            <StackPanel Margin="0,0,16,0">
+                                <TextBlock Text="FLAGGED" FontFamily="Consolas" FontSize="8"
+                                           Foreground="#6B7280" Margin="0,0,0,2"/>
+                                <TextBlock x:Name="MiniFlags" Text="0" FontFamily="Consolas"
+                                           FontSize="18" FontWeight="Bold" Foreground="#F74F4F"/>
+                            </StackPanel>
+                            <StackPanel Margin="0,0,16,0">
+                                <TextBlock Text="WARNINGS" FontFamily="Consolas" FontSize="8"
+                                           Foreground="#6B7280" Margin="0,0,0,2"/>
+                                <TextBlock x:Name="MiniWarns" Text="0" FontFamily="Consolas"
+                                           FontSize="18" FontWeight="Bold" Foreground="#F7A94F"/>
+                            </StackPanel>
+                            <StackPanel>
+                                <TextBlock Text="CLEAN" FontFamily="Consolas" FontSize="8"
+                                           Foreground="#6B7280" Margin="0,0,0,2"/>
+                                <TextBlock x:Name="MiniClean" Text="0" FontFamily="Consolas"
+                                           FontSize="18" FontWeight="Bold" Foreground="#4FF78E"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <!-- Separator -->
+                <Rectangle Grid.Row="1" Height="1" Fill="#282D37" Margin="22,12,22,0"/>
+
+                <!-- Mod Scanner path bar -->
+                <Border Grid.Row="2" x:Name="PathBar" Background="#13161B"
+                        BorderBrush="#282D37" BorderThickness="0,0,0,1"
+                        Padding="22,12" Visibility="Collapsed">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="8"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Grid Grid.Row="0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Mods folder:" FontFamily="Consolas" FontSize="10"
+                                       Foreground="#6B7280" VerticalAlignment="Center"
+                                       Margin="0,0,10,0" Grid.Column="0"/>
+                            <TextBox x:Name="PathBox" Style="{StaticResource PathBox}" Grid.Column="1"/>
+                        </Grid>
+                        <Button x:Name="BtnScanFolder" Grid.Row="2" Content="Scan this folder"
+                                Style="{StaticResource ScanBtn}" HorizontalAlignment="Left" Width="130"/>
+                    </Grid>
+                </Border>
+
+                <!-- Results list -->
+                <ListBox x:Name="ResultsList" Grid.Row="3"
+                         Background="Transparent" BorderThickness="0"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         VirtualizingPanel.IsVirtualizing="True"
+                         ItemContainerStyle="{StaticResource ResultItem}"
+                         Margin="0,6,0,0" Padding="0"/>
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>
+"@
+
+# ── Load window ────────────────────────────────────────────────────────────────
+$reader = New-Object System.Xml.XmlNodeReader $xaml
+$window = [Windows.Markup.XamlReader]::Load($reader)
+
+# Get controls
+$StatusLabel    = $window.FindName("StatusLabel")
+$SectionTitle   = $window.FindName("SectionTitle")
+$SectionSub     = $window.FindName("SectionSub")
+$MiniFlags      = $window.FindName("MiniFlags")
+$MiniWarns      = $window.FindName("MiniWarns")
+$MiniClean      = $window.FindName("MiniClean")
+$MiniCard       = $window.FindName("MiniCard")
+$PathBar        = $window.FindName("PathBar")
+$PathBox        = $window.FindName("PathBox")
+$ResultsList    = $window.FindName("ResultsList")
+$BtnRescan      = $window.FindName("BtnRescan")
+$BtnScanFolder  = $window.FindName("BtnScanFolder")
+
+$NavBtns = @{
+    "OVERVIEW"       = $window.FindName("BtnOverview")
+    "MOD SCANNER"    = $window.FindName("BtnModScanner")
+    "RENAMED JARS"   = $window.FindName("BtnRenamedJars")
+    "RECYCLE BIN"    = $window.FindName("BtnRecycleBin")
+    "DELETED FILES"  = $window.FindName("BtnDeletedFiles")
+    "RECENT CHANGES" = $window.FindName("BtnRecentChanges")
 }
 
-New-NavButton "Overview"       32  "OVERVIEW"
-New-NavButton "Mod Scanner"    66  "MOD SCANNER"
-New-NavButton "Renamed Jars"   100 "RENAMED JARS"
-New-NavButton "Recycle Bin"    134 "RECYCLE BIN"
-New-NavButton "Deleted Files"  168 "DELETED FILES"
-New-NavButton "Recent Changes" 202 "RECENT CHANGES"
+$PathBox.Text = $global:CustomModsPath
 
-$sdivider           = New-Object System.Windows.Forms.Panel
-$sdivider.Location  = New-Object System.Drawing.Point(10, 242)
-$sdivider.Size      = New-Object System.Drawing.Size(170, 1)
-$sdivider.BackColor = $c.Border
-$sidebar.Controls.Add($sdivider)
+# ── Result row builder ─────────────────────────────────────────────────────────
+function Add-ResultRow($text, $type) {
+    $row = New-Object System.Windows.Controls.Border
+    $row.Margin = New-Object System.Windows.Thickness(12, 2, 12, 0)
+    $row.CornerRadius = New-Object System.Windows.CornerRadius(4)
+    $row.Padding = New-Object System.Windows.Thickness(10, 6, 10, 6)
 
-$rescanBtn = New-Object System.Windows.Forms.Button
-$rescanBtn.Text     = "  Rescan"
-$rescanBtn.FlatStyle = "Flat"
-$rescanBtn.FlatAppearance.BorderColor = $c.Border
-$rescanBtn.FlatAppearance.BorderSize  = 1
-$rescanBtn.FlatAppearance.MouseOverBackColor = $c.Bg3
-$rescanBtn.BackColor = $c.Bg2
-$rescanBtn.ForeColor = $c.Accent
-$rescanBtn.Font      = $fontSans
-$rescanBtn.Location  = New-Object System.Drawing.Point(10, 252)
-$rescanBtn.Size      = New-Object System.Drawing.Size(170, 32)
-$rescanBtn.Cursor    = "Hand"
-$sidebar.Controls.Add($rescanBtn)
-
-# ── Content panel (Dock Fill) ──────────────────────────────────────────────────
-$contentPanel           = New-Object System.Windows.Forms.Panel
-$contentPanel.Dock      = "Fill"
-$contentPanel.BackColor = $c.Bg
-
-# -- Header strip (Dock Top) inside content
-$headerStrip           = New-Object System.Windows.Forms.Panel
-$headerStrip.Dock      = "Top"
-$headerStrip.Height    = 66
-$headerStrip.BackColor = $c.Bg
-
-$sectionTitle          = New-Object System.Windows.Forms.Label
-$sectionTitle.Text     = "// OVERVIEW"
-$sectionTitle.Font     = New-Object System.Drawing.Font("Consolas", 12, [System.Drawing.FontStyle]::Bold)
-$sectionTitle.ForeColor = $c.Text
-$sectionTitle.AutoSize = $true
-$sectionTitle.Location = New-Object System.Drawing.Point(20, 12)
-$headerStrip.Controls.Add($sectionTitle)
-
-$sectionSub           = New-Object System.Windows.Forms.Label
-$sectionSub.Text      = "All scan results"
-$sectionSub.Font      = $fontSansSm
-$sectionSub.ForeColor = $c.Muted
-$sectionSub.AutoSize  = $true
-$sectionSub.Location  = New-Object System.Drawing.Point(20, 40)
-$headerStrip.Controls.Add($sectionSub)
-
-$sepLine           = New-Object System.Windows.Forms.Panel
-$sepLine.Dock      = "Top"
-$sepLine.Height    = 1
-$sepLine.BackColor = $c.Border
-
-# -- Path bar (Dock Top, hidden by default)
-$pathBar           = New-Object System.Windows.Forms.Panel
-$pathBar.Dock      = "Top"
-$pathBar.Height    = 72
-$pathBar.BackColor = $c.Bg2
-$pathBar.Padding   = New-Object System.Windows.Forms.Padding(16, 10, 16, 10)
-$pathBar.Visible   = $false
-
-$pathLabel          = New-Object System.Windows.Forms.Label
-$pathLabel.Text     = "Mods folder:"
-$pathLabel.Font     = $fontMonoSm
-$pathLabel.ForeColor = $c.Muted
-$pathLabel.AutoSize = $true
-$pathLabel.Location = New-Object System.Drawing.Point(16, 14)
-$pathBar.Controls.Add($pathLabel)
-
-$pathBox              = New-Object System.Windows.Forms.TextBox
-$pathBox.Text         = $global:CustomModsPath
-$pathBox.Font         = $fontMono
-$pathBox.BackColor    = $c.Bg3
-$pathBox.ForeColor    = $c.Text
-$pathBox.BorderStyle  = "FixedSingle"
-$pathBox.Location     = New-Object System.Drawing.Point(102, 10)
-$pathBox.Size         = New-Object System.Drawing.Size(500, 24)
-$pathBox.Anchor       = [System.Windows.Forms.AnchorStyles]"Top,Left,Right"
-$pathBar.Controls.Add($pathBox)
-
-$pathScanBtn = New-Object System.Windows.Forms.Button
-$pathScanBtn.Text     = "Scan this folder"
-$pathScanBtn.FlatStyle = "Flat"
-$pathScanBtn.FlatAppearance.BorderColor = $c.Border
-$pathScanBtn.FlatAppearance.BorderSize  = 1
-$pathScanBtn.FlatAppearance.MouseOverBackColor = $c.Bg3
-$pathScanBtn.BackColor = $c.Bg2
-$pathScanBtn.ForeColor = $c.Green
-$pathScanBtn.Font      = $fontSans
-$pathScanBtn.Location  = New-Object System.Drawing.Point(16, 42)
-$pathScanBtn.Size      = New-Object System.Drawing.Size(140, 24)
-$pathScanBtn.Cursor    = "Hand"
-$pathScanBtn.Add_Click({
-    $newPath = $pathBox.Text.Trim()
-    if (Test-Path $newPath) {
-        $global:CustomModsPath = $newPath
-        $pathBox.ForeColor = $c.Green
-        Start-Scan
-        Show-Section "MOD SCANNER"
-    } else {
-        $pathBox.ForeColor = $c.Red
+    switch ($type) {
+        "FLAG" { $row.Background = [System.Windows.Media.SolidColorBrush][System.Windows.Media.Color]::FromArgb(255,40,15,15); $fg = "#F7A0A0" }
+        "WARN" { $row.Background = [System.Windows.Media.SolidColorBrush][System.Windows.Media.Color]::FromArgb(255,40,32,14); $fg = "#E0B87A" }
+        "OK"   { $row.Background = [System.Windows.Media.SolidColorBrush][System.Windows.Media.Color]::FromArgb(255,14,32,20); $fg = "#7ADFAA" }
+        "HEAD" { $row.Background = [System.Windows.Media.SolidColorBrush][System.Windows.Media.Color]::FromArgb(255,26,30,37); $fg = "#4F8EF7" }
+        "INFO" { $row.Background = [System.Windows.Media.SolidColorBrush][System.Windows.Media.Color]::FromArgb(255,19,22,27); $fg = "#6B7280" }
+        default{ $row.Background = [System.Windows.Media.SolidColorBrush][System.Windows.Media.Color]::FromArgb(255,19,22,27); $fg = "#9CA3AF" }
     }
-})
-$pathBar.Controls.Add($pathScanBtn)
 
-# -- ListBox (Dock Fill)
-$listBox              = New-Object System.Windows.Forms.ListBox
-$listBox.Dock         = "Fill"
-$listBox.BackColor    = $c.Bg
-$listBox.ForeColor    = $c.Text
-$listBox.Font         = $fontMono
-$listBox.BorderStyle  = "None"
-$listBox.DrawMode     = "OwnerDrawFixed"
-$listBox.ItemHeight   = 24
-$listBox.SelectionMode = "One"
-$listBox.IntegralHeight = $false
+    $tb = New-Object System.Windows.Controls.TextBlock
+    $tb.Text = $text
+    $tb.FontFamily = New-Object System.Windows.Media.FontFamily("Consolas")
+    $tb.FontSize = 11
+    $tb.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom($fg)
+    $tb.TextWrapping = "Wrap"
+    $row.Child = $tb
 
-$listBox.Add_DrawItem({
-    param($sender, $e)
-    if ($e.Index -lt 0) { return }
-    $item = $sender.Items[$e.Index]
-    $bgColor = $c.Bg; $fgColor = $c.Muted
-    if     ($item -match "\[FLAGGED\]|\[MISMATCH\]") { $bgColor = [System.Drawing.Color]::FromArgb(40,15,15);  $fgColor = $c.Red }
-    elseif ($item -match "\[WARN\]")                 { $bgColor = [System.Drawing.Color]::FromArgb(40,32,14);  $fgColor = $c.Amber }
-    elseif ($item -match "\[OK\]")                   { $bgColor = [System.Drawing.Color]::FromArgb(14,32,20);  $fgColor = $c.Green }
-    elseif ($item -match "^//")                      { $bgColor = $c.Bg3;                                       $fgColor = $c.Accent }
-    elseif ($item -match "^─+$")                     { $bgColor = $c.Bg;                                        $fgColor = $c.Border }
-    elseif ($item -match "^\s*(Flagged|Warnings|Clean)\s+:") { $bgColor = $c.Bg2; $fgColor = $c.Text }
-    else                                             { $bgColor = $c.Bg2;                                       $fgColor = $c.Muted }
-    $br = New-Object System.Drawing.SolidBrush($bgColor)
-    $e.Graphics.FillRectangle($br, $e.Bounds); $br.Dispose()
-    $tb = New-Object System.Drawing.SolidBrush($fgColor)
-    $e.Graphics.DrawString($item, $fontMono, $tb, [float]($e.Bounds.X+10), [float]($e.Bounds.Y+4)); $tb.Dispose()
-})
+    $item = New-Object System.Windows.Controls.ListBoxItem
+    $item.Content = $row
+    $item.Background = [System.Windows.Media.Brushes]::Transparent
+    $item.BorderThickness = New-Object System.Windows.Thickness(0)
+    $item.Padding = New-Object System.Windows.Thickness(0)
+    $ResultsList.Items.Add($item) | Out-Null
+}
 
-# Add controls to contentPanel in REVERSE dock order: Fill first, then Tops last
-$contentPanel.Controls.Add($listBox)      # Fill — added first
-$contentPanel.Controls.Add($pathBar)      # Top  — added after Fill
-$contentPanel.Controls.Add($sepLine)      # Top
-$contentPanel.Controls.Add($headerStrip)  # Top  — added last, renders at very top
-
-# Add panels to form in correct order
-$form.Controls.Add($contentPanel)   # Fill — first
-$form.Controls.Add($sidebarBorder)  # Left
-$form.Controls.Add($sidebar)        # Left — last
-
-# ── Show Section ───────────────────────────────────────────────────────────────
+# ── Show section ───────────────────────────────────────────────────────────────
 function Show-Section($key) {
     $global:ActiveSection = $key
-    $listBox.Items.Clear()
-    $pathBar.Visible = ($key -eq "MOD SCANNER")
+    $ResultsList.Items.Clear()
+    $PathBar.Visibility = if ($key -eq "MOD SCANNER") { "Visible" } else { "Collapsed" }
+
+    foreach ($b in $NavBtns.Values) {
+        $b.Style = $window.Resources["NavBtn"]
+    }
+    if ($NavBtns.ContainsKey($key)) {
+        $NavBtns[$key].Style = $window.Resources["NavBtnActive"]
+    }
 
     if ($key -eq "OVERVIEW") {
-        $sectionTitle.Text = "// OVERVIEW"
-        $sectionSub.Text   = "Scanned at $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
-        $totalFlags = 0; $totalWarns = 0; $totalOk = 0
+        $SectionTitle.Text = "// OVERVIEW"
+        $SectionSub.Text   = "Scanned at $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
         foreach ($sec in $global:ScanResults.Keys) {
+            Add-ResultRow "  $sec" "HEAD"
             foreach ($item in $global:ScanResults[$sec]) {
-                if     ($item.Type -eq "FLAG") { $totalFlags++ }
-                elseif ($item.Type -eq "WARN") { $totalWarns++ }
-                else                           { $totalOk++ }
+                Add-ResultRow "    $($item.Line)" $item.Type
             }
-        }
-        $listBox.Items.Add("  Flagged    :  $totalFlags item(s)") | Out-Null
-        $listBox.Items.Add("  Warnings   :  $totalWarns item(s)") | Out-Null
-        $listBox.Items.Add("  Clean      :  $totalOk item(s)")    | Out-Null
-        $listBox.Items.Add("─────────────────────────────────────────────────────") | Out-Null
-        foreach ($sec in $global:ScanResults.Keys) {
-            $listBox.Items.Add("// $sec") | Out-Null
-            foreach ($item in $global:ScanResults[$sec]) {
-                $listBox.Items.Add("  $($item.Line)") | Out-Null
-            }
-            $listBox.Items.Add("") | Out-Null
         }
     } elseif ($key -eq "MOD SCANNER") {
-        $sectionTitle.Text = "// MOD SCANNER"
+        $SectionTitle.Text = "// MOD SCANNER"
         $items = $global:ScanResults["MOD SCANNER"]
         if ($items -and $items.Count -gt 0) {
             $flags = ($items | Where-Object { $_.Type -eq "FLAG" }).Count
-            $sectionSub.Text = "$($items.Count) result(s)  —  $flags flagged"
-            foreach ($item in $items) { $listBox.Items.Add("  $($item.Line)") | Out-Null }
+            $SectionSub.Text = "$($items.Count) result(s) — $flags flagged"
+            foreach ($item in $items) { Add-ResultRow "  $($item.Line)" $item.Type }
         } else {
-            $sectionSub.Text = "Enter your mods folder path and click Scan"
+            $SectionSub.Text = "Enter mods folder path and click Scan"
         }
     } else {
-        $sectionTitle.Text = "// $key"
+        $SectionTitle.Text = "// $key"
         $items = $global:ScanResults[$key]
         if ($items -and $items.Count -gt 0) {
             $flags = ($items | Where-Object { $_.Type -eq "FLAG" }).Count
-            $sectionSub.Text = "$($items.Count) result(s)  —  $flags flagged"
-            foreach ($item in $items) { $listBox.Items.Add("  $($item.Line)") | Out-Null }
+            $SectionSub.Text = "$($items.Count) result(s) — $flags flagged"
+            foreach ($item in $items) { Add-ResultRow "  $($item.Line)" $item.Type }
         } else {
-            $sectionSub.Text = "No data"
-            $listBox.Items.Add("  No results for this section.") | Out-Null
+            $SectionSub.Text = "No data"
+            Add-ResultRow "  No results for this section." "INFO"
         }
     }
 }
 
-# ── Resize ─────────────────────────────────────────────────────────────────────
-$form.Add_Resize({
-    $statusLabel.Location = New-Object System.Drawing.Point(($titlePanel.Width - $statusLabel.Width - 16), 15)
-    $pathBox.Width = $pathBar.Width - 102 - 20
+# ── Update mini card ───────────────────────────────────────────────────────────
+function Update-MiniCard {
+    $flags = 0; $warns = 0; $ok = 0
+    foreach ($sec in $global:ScanResults.Keys) {
+        foreach ($item in $global:ScanResults[$sec]) {
+            if     ($item.Type -eq "FLAG") { $flags++ }
+            elseif ($item.Type -eq "WARN") { $warns++ }
+            else                           { $ok++ }
+        }
+    }
+    $MiniFlags.Text = "$flags"
+    $MiniWarns.Text = "$warns"
+    $MiniClean.Text = "$ok"
+
+    foreach ($sec in $global:ScanResults.Keys) {
+        if (-not $NavBtns.ContainsKey($sec)) { continue }
+        $hasFlag = ($global:ScanResults[$sec] | Where-Object { $_.Type -eq "FLAG" }).Count -gt 0
+        $hasWarn = ($global:ScanResults[$sec] | Where-Object { $_.Type -eq "WARN" }).Count -gt 0
+        $btn = $NavBtns[$sec]
+        if ($hasFlag)     { $btn.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#F74F4F") }
+        elseif ($hasWarn) { $btn.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#F7A94F") }
+        else              { $btn.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#4FF78E") }
+    }
+}
+
+# ── Start scan ─────────────────────────────────────────────────────────────────
+function Start-Scan {
+    $StatusLabel.Text       = "● scanning..."
+    $StatusLabel.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#F7A94F")
+    $window.Dispatcher.Invoke([action]{}, "Render")
+
+    $global:ScanResults = Run-Checks $global:CustomModsPath
+    Update-MiniCard
+
+    $totalFlags = ($global:ScanResults.Values | ForEach-Object { $_ } | Where-Object { $_.Type -eq "FLAG" }).Count
+    if ($totalFlags -gt 0) {
+        $StatusLabel.Text       = "● $totalFlags flag(s) found"
+        $StatusLabel.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#F74F4F")
+    } else {
+        $StatusLabel.Text       = "● scan complete"
+        $StatusLabel.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#4FF78E")
+    }
+    Show-Section $global:ActiveSection
+}
+
+# ── Wire up buttons ────────────────────────────────────────────────────────────
+foreach ($kvp in $NavBtns.GetEnumerator()) {
+    $key = $kvp.Key
+    $kvp.Value.Add_Click({ Show-Section $key }.GetNewClosure())
+}
+
+$BtnRescan.Add_Click({ Start-Scan })
+
+$BtnScanFolder.Add_Click({
+    $newPath = $PathBox.Text.Trim()
+    if (Test-Path $newPath) {
+        $global:CustomModsPath = $newPath
+        $PathBox.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#4FF78E")
+        Start-Scan
+        Show-Section "MOD SCANNER"
+    } else {
+        $PathBox.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#F74F4F")
+    }
 })
 
-# ── Start Scan ─────────────────────────────────────────────────────────────────
-function Start-Scan {
-    $statusLabel.Text     = "● scanning..."
-    $statusLabel.ForeColor = $c.Amber
-    $form.Refresh()
-    $global:ScanResults = Run-Checks
-    $totalFlags = 0
-    foreach ($sec in $global:ScanResults.Keys) {
-        $flags = ($global:ScanResults[$sec] | Where-Object { $_.Type -eq "FLAG" }).Count
-        $totalFlags += $flags
-        if ($global:NavButtons.ContainsKey($sec)) {
-            $hasWarn = ($global:ScanResults[$sec] | Where-Object { $_.Type -eq "WARN" }).Count -gt 0
-            if ($flags -gt 0)  { $global:NavButtons[$sec].ForeColor = $c.Red }
-            elseif ($hasWarn)  { $global:NavButtons[$sec].ForeColor = $c.Amber }
-            else               { $global:NavButtons[$sec].ForeColor = $c.Green }
-        }
-    }
-    if ($totalFlags -gt 0) { $statusLabel.Text = "● $totalFlags flag(s) found"; $statusLabel.ForeColor = $c.Red }
-    else                   { $statusLabel.Text = "● scan complete";              $statusLabel.ForeColor = $c.Green }
-    $statusLabel.Location = New-Object System.Drawing.Point(($titlePanel.Width - $statusLabel.Width - 16), 15)
-    $global:NavButtons["OVERVIEW"].BackColor = $c.Bg3
-    Show-Section "OVERVIEW"
-}
-
-$rescanBtn.Add_Click({ Start-Scan })
-$form.Add_Shown({ Start-Scan })
-[System.Windows.Forms.Application]::Run($form)
+$window.Add_Loaded({ Start-Scan })
+$window.ShowDialog() | Out-Null
