@@ -257,8 +257,8 @@ $contentPanel.Controls.Add($sepLine)
 
 # ── Mods folder path bar (only visible on Mod Scanner panel) ───────────────────
 $pathPanel = New-Object System.Windows.Forms.Panel
-$pathPanel.Location = New-Object System.Drawing.Point(20, 72)
-$pathPanel.Height = 80
+$pathPanel.Dock = "Top"
+$pathPanel.Height = 78
 $pathPanel.BackColor = $c.Bg
 $pathPanel.Visible = $false
 $contentPanel.Controls.Add($pathPanel)
@@ -268,7 +268,7 @@ $pathLabel.Text = "Mods folder:"
 $pathLabel.Font = $fontMonoSm
 $pathLabel.ForeColor = $c.Muted
 $pathLabel.AutoSize = $true
-$pathLabel.Location = New-Object System.Drawing.Point(0, 12)
+$pathLabel.Location = New-Object System.Drawing.Point(0, 10)
 $pathPanel.Controls.Add($pathLabel)
 
 $pathBox = New-Object System.Windows.Forms.TextBox
@@ -277,35 +277,13 @@ $pathBox.Font = $fontMono
 $pathBox.BackColor = $c.Bg3
 $pathBox.ForeColor = $c.Text
 $pathBox.BorderStyle = "FixedSingle"
-$pathBox.Location = New-Object System.Drawing.Point(90, 8)
-$pathBox.Size = New-Object System.Drawing.Size(480, 24)
+$pathBox.Anchor = "Top,Left,Right"
+$pathBox.Location = New-Object System.Drawing.Point(90, 6)
+$pathBox.Size = New-Object System.Drawing.Size(600, 24)
 $pathPanel.Controls.Add($pathBox)
 
-$pathSetBtn = New-Object System.Windows.Forms.Button
-$pathSetBtn.Text = "Set"
-$pathSetBtn.FlatStyle = "Flat"
-$pathSetBtn.FlatAppearance.BorderColor = $c.Border
-$pathSetBtn.FlatAppearance.BorderSize = 1
-$pathSetBtn.FlatAppearance.MouseOverBackColor = $c.Bg3
-$pathSetBtn.BackColor = $c.Bg2
-$pathSetBtn.ForeColor = $c.Accent
-$pathSetBtn.Font = $fontSans
-$pathSetBtn.Location = New-Object System.Drawing.Point(578, 7)
-$pathSetBtn.Size = New-Object System.Drawing.Size(50, 26)
-$pathSetBtn.Cursor = "Hand"
-$pathSetBtn.Add_Click({
-    $newPath = $pathBox.Text.Trim()
-    if (Test-Path $newPath) {
-        $global:CustomModsPath = $newPath
-        $pathBox.ForeColor = $c.Green
-    } else {
-        $pathBox.ForeColor = $c.Red
-    }
-})
-$pathPanel.Controls.Add($pathSetBtn)
-
 $pathScanBtn = New-Object System.Windows.Forms.Button
-$pathScanBtn.Text = "  Scan this folder"
+$pathScanBtn.Text = "Scan this folder"
 $pathScanBtn.FlatStyle = "Flat"
 $pathScanBtn.FlatAppearance.BorderColor = $c.Border
 $pathScanBtn.FlatAppearance.BorderSize = 1
@@ -313,9 +291,8 @@ $pathScanBtn.FlatAppearance.MouseOverBackColor = $c.Bg3
 $pathScanBtn.BackColor = $c.Bg2
 $pathScanBtn.ForeColor = $c.Green
 $pathScanBtn.Font = $fontSans
-$pathScanBtn.TextAlign = "MiddleLeft"
-$pathScanBtn.Location = New-Object System.Drawing.Point(0, 42)
-$pathScanBtn.Size = New-Object System.Drawing.Size(160, 30)
+$pathScanBtn.Location = New-Object System.Drawing.Point(0, 38)
+$pathScanBtn.Size = New-Object System.Drawing.Size(150, 28)
 $pathScanBtn.Cursor = "Hand"
 $pathScanBtn.Add_Click({
     $newPath = $pathBox.Text.Trim()
@@ -332,7 +309,7 @@ $pathPanel.Controls.Add($pathScanBtn)
 
 # Results list
 $listBox = New-Object System.Windows.Forms.ListBox
-$listBox.Location = New-Object System.Drawing.Point(20, 74)
+$listBox.Dock = "Fill"
 $listBox.BackColor = $c.Bg
 $listBox.ForeColor = $c.Text
 $listBox.Font = $fontMono
@@ -457,12 +434,8 @@ function Show-Section($key) {
     # Show or hide the path bar
     if ($key -eq "MOD SCANNER") {
         $pathPanel.Visible = $true
-        $listBox.Location = New-Object System.Drawing.Point(20, 158)
-        $listBox.Size = New-Object System.Drawing.Size(($contentPanel.Width - 40), ($contentPanel.Height - 172))
     } else {
         $pathPanel.Visible = $false
-        $listBox.Location = New-Object System.Drawing.Point(20, 74)
-        $listBox.Size = New-Object System.Drawing.Size(($contentPanel.Width - 40), ($contentPanel.Height - 88))
     }
 
     if ($key -eq "OVERVIEW") {
@@ -521,15 +494,7 @@ function Show-Section($key) {
 $form.Add_Resize({
     $statusLabel.Location = New-Object System.Drawing.Point(($titlePanel.Width - $statusLabel.Width - 16), 15)
     $sepLine.Width = $contentPanel.Width - 40
-    $pathPanel.Width = $contentPanel.Width - 40
-    $pathBox.Width = $contentPanel.Width - 40 - 90 - 60
-    if ($pathPanel.Visible) {
-        $listBox.Location = New-Object System.Drawing.Point(20, 158)
-        $listBox.Size = New-Object System.Drawing.Size(($contentPanel.Width - 40), ($contentPanel.Height - 172))
-    } else {
-        $listBox.Location = New-Object System.Drawing.Point(20, 74)
-        $listBox.Size = New-Object System.Drawing.Size(($contentPanel.Width - 40), ($contentPanel.Height - 88))
-    }
+    $pathBox.Width = $contentPanel.Width - 90 - 20
 })
 
 # ── Start scan ─────────────────────────────────────────────────────────────────
@@ -565,11 +530,6 @@ function Start-Scan {
     $global:NavButtons["OVERVIEW"].BackColor = $c.Bg3
     Show-Section "OVERVIEW"
     $statusLabel.Location = New-Object System.Drawing.Point(($titlePanel.Width - $statusLabel.Width - 16), 15)
-    $sepLine.Width = $contentPanel.Width - 40
-    $pathPanel.Width = $contentPanel.Width - 40
-    $pathBox.Width = $contentPanel.Width - 40 - 90 - 60
-    $listBox.Location = New-Object System.Drawing.Point(20, 74)
-    $listBox.Size = New-Object System.Drawing.Size(($contentPanel.Width - 40), ($contentPanel.Height - 88))
 }
 
 $rescanBtn.Add_Click({ Start-Scan })
