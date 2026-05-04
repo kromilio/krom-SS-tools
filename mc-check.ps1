@@ -1140,11 +1140,11 @@ function Open-MemoryScanWindow {
     $memReader = New-Object System.Xml.XmlNodeReader $memXaml
     $memWin    = [Windows.Markup.XamlReader]::Load($memReader)
 
-    $script:memList   = $memWin.FindName("MemList")
-    $script:memStatus = $memWin.FindName("MemStatus")
-    $script:memSub    = $memWin.FindName("MemSub")
-    $script:memWinRef = $memWin
-    $script:brush     = [System.Windows.Media.BrushConverter]::new()
+    $global:memList   = $memWin.FindName("MemList")
+    $global:memStatus = $memWin.FindName("MemStatus")
+    $global:memSub    = $memWin.FindName("MemSub")
+    $global:memWinRef = $memWin
+    $global:brush     = [System.Windows.Media.BrushConverter]::new()
     $btnStart  = $memWin.FindName("BtnStartMem")
     $btnClear  = $memWin.FindName("BtnClearMem")
 
@@ -1177,17 +1177,17 @@ function Open-MemoryScanWindow {
     }
 
     $btnClear.Add_Click({
-        $script:memList.Items.Clear()
-        $script:memStatus.Text = "idle"
-        $script:memSub.Text    = "Scan for traces of self-destructed cheats"
+        $global:memList.Items.Clear()
+        $global:memStatus.Text = "idle"
+        $global:memSub.Text    = "Scan for traces of self-destructed cheats"
     }.GetNewClosure())
 
     $btnStart.Add_Click({
-        $script:memList.Items.Clear()
-        $script:memStatus.Text = "scanning..."
-        $script:memStatus.Foreground = $script:brush.ConvertFrom("#F7A94F")
-        $script:memSub.Text = "Reading javaw.exe process memory..."
-        $script:memWinRef.Dispatcher.Invoke([action]{}, "Render")
+        $global:memList.Items.Clear()
+        $global:memStatus.Text = "scanning..."
+        $global:memStatus.Foreground = $global:brush.ConvertFrom("#F7A94F")
+        $global:memSub.Text = "Reading javaw.exe process memory..."
+        $global:memWinRef.Dispatcher.Invoke([action]{}, "Render")
 
         # Strings to search for in javaw memory
         $signatures = @("inject","destruct","selfdestruct","self destruct","self_destruct","prestige","krypton")
@@ -1271,24 +1271,24 @@ function Open-MemoryScanWindow {
         # Push results to UI - inlined since closure can't see Add-MemRow
         $tf = $flagCount; $tw = $warnCount; $to = $okCount
         $capturedRows = $rows
-        $script:memWinRef.Dispatcher.Invoke([action]{
+        $global:memWinRef.Dispatcher.Invoke([action]{
             foreach ($row in $capturedRows) {
                 $r = New-Object System.Windows.Controls.Border
                 $r.Margin       = New-Object System.Windows.Thickness(12,2,12,0)
                 $r.CornerRadius = New-Object System.Windows.CornerRadius(4)
                 $r.Padding      = New-Object System.Windows.Thickness(10,6,10,6)
                 switch ($row.K) {
-                    "FLAG" { $r.Background = $script:brush.ConvertFrom("#281010"); $fg = "#F7A0A0" }
-                    "WARN" { $r.Background = $script:brush.ConvertFrom("#28200E"); $fg = "#E0B87A" }
-                    "OK"   { $r.Background = $script:brush.ConvertFrom("#0E2014"); $fg = "#7ADFAA" }
-                    "HEAD" { $r.Background = $script:brush.ConvertFrom("#1A1E25"); $fg = "#4F8EF7" }
-                    default{ $r.Background = $script:brush.ConvertFrom("#13161B"); $fg = "#9CA3AF" }
+                    "FLAG" { $r.Background = $global:brush.ConvertFrom("#281010"); $fg = "#F7A0A0" }
+                    "WARN" { $r.Background = $global:brush.ConvertFrom("#28200E"); $fg = "#E0B87A" }
+                    "OK"   { $r.Background = $global:brush.ConvertFrom("#0E2014"); $fg = "#7ADFAA" }
+                    "HEAD" { $r.Background = $global:brush.ConvertFrom("#1A1E25"); $fg = "#4F8EF7" }
+                    default{ $r.Background = $global:brush.ConvertFrom("#13161B"); $fg = "#9CA3AF" }
                 }
                 $tb = New-Object System.Windows.Controls.TextBlock
                 $tb.Text         = $row.T
                 $tb.FontFamily   = New-Object System.Windows.Media.FontFamily("Consolas")
                 $tb.FontSize     = 11
-                $tb.Foreground   = $script:brush.ConvertFrom($fg)
+                $tb.Foreground   = $global:brush.ConvertFrom($fg)
                 $tb.TextWrapping = "Wrap"
                 $r.Child = $tb
                 $li = New-Object System.Windows.Controls.ListBoxItem
@@ -1296,23 +1296,23 @@ function Open-MemoryScanWindow {
                 $li.Background      = [System.Windows.Media.Brushes]::Transparent
                 $li.BorderThickness = New-Object System.Windows.Thickness(0)
                 $li.Padding         = New-Object System.Windows.Thickness(0)
-                $script:memList.Items.Add($li) | Out-Null
+                $global:memList.Items.Add($li) | Out-Null
             }
-            $memFlags = $script:memWinRef.FindName("MemFlags")
-            $memWarns = $script:memWinRef.FindName("MemWarns")
-            $memClean = $script:memWinRef.FindName("MemClean")
+            $memFlags = $global:memWinRef.FindName("MemFlags")
+            $memWarns = $global:memWinRef.FindName("MemWarns")
+            $memClean = $global:memWinRef.FindName("MemClean")
             if ($memFlags) { $memFlags.Text = "$tf" }
             if ($memWarns) { $memWarns.Text = "$tw" }
             if ($memClean) { $memClean.Text = "$to" }
 
             if ($tf -gt 0) {
-                $script:memStatus.Text = "$tf finding(s)"
-                $script:memStatus.Foreground = $script:brush.ConvertFrom("#F74F4F")
-                $script:memSub.Text = "Suspicious strings found in javaw memory"
+                $global:memStatus.Text = "$tf finding(s)"
+                $global:memStatus.Foreground = $global:brush.ConvertFrom("#F74F4F")
+                $global:memSub.Text = "Suspicious strings found in javaw memory"
             } else {
-                $script:memStatus.Text = "clean"
-                $script:memStatus.Foreground = $script:brush.ConvertFrom("#4FF78E")
-                $script:memSub.Text = "No suspicious strings found in javaw memory"
+                $global:memStatus.Text = "clean"
+                $global:memStatus.Foreground = $global:brush.ConvertFrom("#4FF78E")
+                $global:memSub.Text = "No suspicious strings found in javaw memory"
             }
         }.GetNewClosure(), "Normal")
     }.GetNewClosure())
