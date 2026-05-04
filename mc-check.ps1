@@ -290,7 +290,7 @@ function Run-Checks($modsFolder) {
 
                 <StackPanel Grid.Row="0" Margin="0,12,0,0">
                     <TextBlock Text="  CHECKS" FontFamily="Consolas" FontSize="8"
-                               Foreground="#6B7280" Margin="0,0,0,6" LetterSpacing="2"/>
+                               Foreground="#6B7280" Margin="0,0,0,6"/>
 
                     <Button x:Name="BtnOverview"      Content="  Overview"       Style="{StaticResource NavBtnActive}" Tag="OVERVIEW"/>
                     <Button x:Name="BtnModScanner"    Content="  Mod Scanner"    Style="{StaticResource NavBtn}"       Tag="MOD SCANNER"/>
