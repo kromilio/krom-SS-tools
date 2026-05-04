@@ -1012,7 +1012,6 @@ function Open-MemoryScanWindow {
     })
 
     $script:mBtnStartMemScan.Add_Click({
-        $script:mBtnStartMemScan.IsEnabled = $false
         $script:mMemList.Items.Clear()
         $script:mMemStatus.Text       = "● scanning..."
         $script:mMemStatus.Foreground = $script:mBrush.ConvertFrom("#F7A94F")
@@ -1193,8 +1192,8 @@ function Open-MemoryScanWindow {
             $script:mMemStatus.Text       = if ($tf -gt 0) { "● $tf finding(s)" } else { "● clean" }
             $script:mMemStatus.Foreground = if ($tf -gt 0) { $script:mBrush.ConvertFrom("#F74F4F") } else { $script:mBrush.ConvertFrom("#4FF78E") }
             $script:mMemSummary.Text      = "Scan complete -- $tf suspicious finding(s)"
-            $script:mBtnStartMemScan.IsEnabled = $true
         }.GetNewClosure(), "Normal")
+        $script:mBtnStartMemScan.Dispatcher.Invoke([action]{ $script:mBtnStartMemScan.IsEnabled = $true }, "Normal")
     })
 
     # Run the window on its own thread so it doesn't block main UI
