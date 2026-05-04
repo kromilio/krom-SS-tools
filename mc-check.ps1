@@ -1174,15 +1174,114 @@ function Open-MemoryScanWindow {
 
     $btnStart.Add_Click({
         $memList.Items.Clear()
-        $memStatus.Text = "demo mode"
-        $memStatus.Foreground = $brush.ConvertFrom("#4F8EF7")
-        $memSub.Text = "Demo - logic disabled while we test the UI"
-        Add-MemRow "  -- DEMO RESULTS --" "HEAD" $memList $brush
-        Add-MemRow "  [INFO]  Memory scan window opened successfully" "INFO" $memList $brush
-        Add-MemRow "  [OK]    UI styling matches main panel" "OK" $memList $brush
-        Add-MemRow "  [WARN]  Memory scan logic temporarily disabled" "WARN" $memList $brush
-        Add-MemRow "  [FLAGGED]  Test row to show flagged styling" "FLAG" $memList $brush
-        Add-MemRow "  [INFO]  Click Clear to reset, Run again to test" "INFO" $memList $brush
+        $memStatus.Text = "scanning..."
+        $memStatus.Foreground = $brush.ConvertFrom("#F7A94F")
+        $memSub.Text = "Reading javaw.exe process memory..."
+        $memWin.Dispatcher.Invoke([action]{}, "Render")
+
+        # Strings to search for in javaw memory
+        $signatures = @("inject","destruct","selfdestruct","self destruct","self_destruct","prestige","krypton")
+
+        # Collect rows first, push to UI at the end
+        $rows = [System.Collections.Generic.List[hashtable]]::new()
+        $flagCount = 0
+        $okCount   = 0
+        $warnCount = 0
+
+        $rows.Add(@{ T="  -- JAVAW.EXE MEMORY SCAN --"; K="HEAD" })
+
+        $javaProcs = Get-Process -Name "javaw" -ErrorAction SilentlyContinue
+        if (-not $javaProcs) {
+            $rows.Add(@{ T="  [WARN]  No javaw.exe running -- start Minecraft first"; K="WARN" })
+            $warnCount++
+        } else {
+            $PROCESS_VM_READ        = 0x0010
+            $PROCESS_QUERY_INFO     = 0x0400
+
+            foreach ($proc in $javaProcs) {
+                $javaPid = $proc.Id
+                $rows.Add(@{ T="  Scanning PID $javaPid ..."; K="INFO" })
+
+                try {
+                    $hProc = [MemAPI]::OpenProcess($PROCESS_VM_READ -bor $PROCESS_QUERY_INFO, $false, $javaPid)
+                    if ($hProc -eq [IntPtr]::Zero) {
+                        $rows.Add(@{ T="  [WARN]  Cannot open PID $javaPid -- run as Administrator"; K="WARN" })
+                        $warnCount++
+                        continue
+                    }
+
+                    $mbi      = New-Object MemAPI+MEMORY_BASIC_INFORMATION
+                    $mbiSize  = [System.Runtime.InteropServices.Marshal]::SizeOf($mbi)
+                    $addr     = [IntPtr]::Zero
+                    $hits     = @{}
+
+                    while ([MemAPI]::VirtualQueryEx($hProc, $addr, [ref]$mbi, $mbiSize)) {
+                        # Only committed, readable, non-image pages
+                        $isCommit = $mbi.State -eq 0x1000
+                        $isReadable = ($mbi.Protect -band 0x02) -or ($mbi.Protect -band 0x04) -or ($mbi.Protect -band 0x20) -or ($mbi.Protect -band 0x40)
+                        if ($isCommit -and $isReadable) {
+                            $size = [int64]$mbi.RegionSize.ToInt64()
+                            if ($size -gt 0 -and $size -lt 50MB) {
+                                $buf  = New-Object byte[] $size
+                                $read = 0
+                                if ([MemAPI]::ReadProcessMemory($hProc, $mbi.BaseAddress, $buf, $size, [ref]$read) -and $read -gt 0) {
+                                    $text = [System.Text.Encoding]::ASCII.GetString($buf, 0, $read).ToLower()
+                                    foreach ($sig in $signatures) {
+                                        if ($text.Contains($sig)) {
+                                            if (-not $hits.ContainsKey($sig)) { $hits[$sig] = 0 }
+                                            $hits[$sig]++
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        $next = $mbi.BaseAddress.ToInt64() + $mbi.RegionSize.ToInt64()
+                        if ($next -le $addr.ToInt64()) { break }
+                        try { $addr = [IntPtr]::new($next) } catch { break }
+                    }
+                    [MemAPI]::CloseHandle($hProc) | Out-Null
+
+                    if ($hits.Count -eq 0) {
+                        $rows.Add(@{ T="  [OK]  PID $javaPid -- no suspicious strings found"; K="OK" })
+                        $okCount++
+                    } else {
+                        foreach ($k in $hits.Keys) {
+                            $count = $hits[$k]
+                            $rows.Add(@{ T="  [FLAGGED]  PID $javaPid  ->  '$k' found in $count region(s)"; K="FLAG" })
+                            $flagCount++
+                        }
+                    }
+                } catch {
+                    $rows.Add(@{ T="  [WARN]  Error scanning PID $javaPid : $($_.Exception.Message)"; K="WARN" })
+                    $warnCount++
+                }
+            }
+        }
+
+        # Push results to UI
+        $tf = $flagCount; $tw = $warnCount; $to = $okCount
+        $capturedRows = $rows
+        $memWin.Dispatcher.Invoke([action]{
+            foreach ($row in $capturedRows) {
+                Add-MemRow $row.T $row.K $memList $brush
+            }
+            $memFlags = $memWin.FindName("MemFlags")
+            $memWarns = $memWin.FindName("MemWarns")
+            $memClean = $memWin.FindName("MemClean")
+            $memFlags.Text = "$tf"
+            $memWarns.Text = "$tw"
+            $memClean.Text = "$to"
+
+            if ($tf -gt 0) {
+                $memStatus.Text = "$tf finding(s)"
+                $memStatus.Foreground = $brush.ConvertFrom("#F74F4F")
+                $memSub.Text = "Suspicious strings found in javaw memory"
+            } else {
+                $memStatus.Text = "clean"
+                $memStatus.Foreground = $brush.ConvertFrom("#4FF78E")
+                $memSub.Text = "No suspicious strings found in javaw memory"
+            }
+        }.GetNewClosure(), "Normal")
     }.GetNewClosure())
 
     $memWin.Show()
