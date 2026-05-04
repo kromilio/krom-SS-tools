@@ -813,7 +813,6 @@ $NavBtns["DELETED FILES"].Add_Click( { Show-Section "DELETED FILES" })
 $NavBtns["RECENT CHANGES"].Add_Click({ Show-Section "RECENT CHANGES" })
 $NavBtns["PREFETCH SCAN"].Add_Click( { Show-Section "PREFETCH SCAN" })
 $NavBtns["LOG SCANNER"].Add_Click(   { Show-Section "LOG SCANNER" })
-$NavBtns["MEMORY SCAN"].Add_Click(   { Show-Section "MEMORY SCAN" })
 
 function Scan-Log($logPath) {
     $ResultsList.Items.Clear()
@@ -922,7 +921,7 @@ function Open-MemoryScanWindow {
 <Window
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="Memory Scan — Krom SS Tools" Height="580" Width="780"
+    Title="Memory Scan - Krom SS Tools" Height="560" Width="780"
     MinHeight="400" MinWidth="600"
     Background="#0D0F12" Foreground="#E8EAF0"
     WindowStartupLocation="CenterScreen" ResizeMode="CanResize">
@@ -930,13 +929,10 @@ function Open-MemoryScanWindow {
         <Grid.RowDefinitions>
             <RowDefinition Height="48"/>
             <RowDefinition Height="1"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="1"/>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="60"/>
         </Grid.RowDefinitions>
 
-        <!-- Titlebar -->
         <Grid Grid.Row="0" Background="#13161B">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="18,0,0,0">
                 <Border Background="#F74F4F" CornerRadius="5" Width="26" Height="26" Margin="0,0,10,0">
@@ -946,94 +942,31 @@ function Open-MemoryScanWindow {
                 <TextBlock Text="MEMORY SCAN" FontFamily="Consolas" FontWeight="Bold" FontSize="13"
                            Foreground="#E8EAF0" VerticalAlignment="Center"/>
             </StackPanel>
-            <TextBlock x:Name="MemStatus" Text="● idle" FontFamily="Consolas" FontSize="10"
+            <TextBlock Name="MemStatus" Text="idle" FontFamily="Consolas" FontSize="10"
                        Foreground="#6B7280" VerticalAlignment="Center"
                        HorizontalAlignment="Right" Margin="0,0,18,0"/>
         </Grid>
+
         <Rectangle Grid.Row="1" Fill="#282D37"/>
 
-        <!-- Info bar -->
-        <Grid Grid.Row="2" Background="#13161B" Margin="0,0,0,0">
-            <StackPanel Orientation="Horizontal" Margin="18,10,18,10">
-                <TextBlock Text="Scans: " FontFamily="Consolas" FontSize="10" Foreground="#6B7280" VerticalAlignment="Center"/>
-                <TextBlock Text="javaw.exe memory  " FontFamily="Consolas" FontSize="10" Foreground="#9CA3AF" VerticalAlignment="Center"/>
-                <TextBlock Text="•  " Foreground="#282D37" VerticalAlignment="Center"/>
-                <TextBlock Text="temp artifacts  " FontFamily="Consolas" FontSize="10" Foreground="#9CA3AF" VerticalAlignment="Center"/>
-                <TextBlock Text="•  " Foreground="#282D37" VerticalAlignment="Center"/>
-                <TextBlock Text="recent files  " FontFamily="Consolas" FontSize="10" Foreground="#9CA3AF" VerticalAlignment="Center"/>
-                <TextBlock Text="•  " Foreground="#282D37" VerticalAlignment="Center"/>
-                <TextBlock Text="registry" FontFamily="Consolas" FontSize="10" Foreground="#9CA3AF" VerticalAlignment="Center"/>
-                <TextBlock Text="   |   Requires Administrator for memory read"
-                           FontFamily="Consolas" FontSize="10" Foreground="#F7A94F" VerticalAlignment="Center"/>
-            </StackPanel>
-        </Grid>
-        <Rectangle Grid.Row="3" Fill="#282D37"/>
+        <ListBox Name="MemList" Grid.Row="2"
+                 Background="#0D0F12" BorderThickness="0"
+                 Foreground="#E8EAF0" FontFamily="Consolas" FontSize="11"
+                 Padding="20,12,20,12"/>
 
-        <!-- Results -->
-        <ListBox x:Name="MemList" Grid.Row="4"
-                 Background="Transparent" BorderThickness="0"
-                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                 VirtualizingPanel.IsVirtualizing="True"
-                 Margin="0,6,0,0" Padding="0">
-            <ListBox.ItemContainerStyle>
-                <Style TargetType="ListBoxItem">
-                    <Setter Property="Background" Value="Transparent"/>
-                    <Setter Property="BorderThickness" Value="0"/>
-                    <Setter Property="Padding" Value="0"/>
-                    <Setter Property="Template">
-                        <Setter.Value>
-                            <ControlTemplate TargetType="ListBoxItem">
-                                <ContentPresenter/>
-                            </ControlTemplate>
-                        </Setter.Value>
-                    </Setter>
-                </Style>
-            </ListBox.ItemContainerStyle>
-        </ListBox>
-
-        <!-- Bottom bar -->
-        <Grid Grid.Row="5" Background="#13161B" Height="52">
+        <Grid Grid.Row="3" Background="#13161B">
             <Rectangle Height="1" VerticalAlignment="Top" Fill="#282D37"/>
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="18,0,18,0">
-                <Button x:Name="BtnStartMemScan" Content="  Run Memory Scan"
-                        FontFamily="Consolas" FontSize="11"
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="18,0">
+                <Button Name="BtnStartMem" Content="Run Memory Scan"
                         Background="#1A1E25" Foreground="#4FF78E"
                         BorderBrush="#2A4A38" BorderThickness="1"
-                        Height="32" Padding="16,0" Cursor="Hand">
-                    <Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border Background="{TemplateBinding Background}"
-                                    BorderBrush="{TemplateBinding BorderBrush}"
-                                    BorderThickness="{TemplateBinding BorderThickness}"
-                                    CornerRadius="4">
-                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            </Border>
-                            <ControlTemplate.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Background" Value="#1F2A22"/>
-                                </Trigger>
-                            </ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </Button.Template>
-                </Button>
-                <Button x:Name="BtnClearMem" Content="  Clear"
                         FontFamily="Consolas" FontSize="11"
+                        Height="32" Padding="20,0" Cursor="Hand"/>
+                <Button Name="BtnClearMem" Content="Clear"
                         Background="#1A1E25" Foreground="#6B7280"
                         BorderBrush="#282D37" BorderThickness="1"
-                        Height="32" Padding="16,0" Cursor="Hand" Margin="8,0,0,0">
-                    <Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border Background="{TemplateBinding Background}"
-                                    BorderBrush="{TemplateBinding BorderBrush}"
-                                    BorderThickness="{TemplateBinding BorderThickness}"
-                                    CornerRadius="4">
-                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            </Border>
-                        </ControlTemplate>
-                    </Button.Template>
-                </Button>
-                <TextBlock x:Name="MemSummary" Text="" FontFamily="Consolas" FontSize="10"
-                           Foreground="#6B7280" VerticalAlignment="Center" Margin="16,0,0,0"/>
+                        FontFamily="Consolas" FontSize="11"
+                        Height="32" Padding="20,0" Margin="10,0,0,0" Cursor="Hand"/>
             </StackPanel>
         </Grid>
     </Grid>
@@ -1043,243 +976,26 @@ function Open-MemoryScanWindow {
     $memReader = New-Object System.Xml.XmlNodeReader $memXaml
     $memWin    = [Windows.Markup.XamlReader]::Load($memReader)
 
-    $script:mMemList         = $memWin.FindName("MemList")
-    $script:mMemStatus       = $memWin.FindName("MemStatus")
-    $script:mMemSummary      = $memWin.FindName("MemSummary")
-    $script:mBtnStartMemScan = $memWin.FindName("BtnStartMemScan")
-    $script:mBtnClearMem     = $memWin.FindName("BtnClearMem")
-    $script:mMemWin          = $memWin
-    $script:mBrush           = [System.Windows.Media.BrushConverter]::new()
+    $memList   = $memWin.FindName("MemList")
+    $memStatus = $memWin.FindName("MemStatus")
+    $btnStart  = $memWin.FindName("BtnStartMem")
+    $btnClear  = $memWin.FindName("BtnClearMem")
 
-    function Add-MemRow($text, $type) {
-        $row = New-Object System.Windows.Controls.Border
-        $row.Margin       = New-Object System.Windows.Thickness(12,2,12,0)
-        $row.CornerRadius = New-Object System.Windows.CornerRadius(4)
-        $row.Padding      = New-Object System.Windows.Thickness(10,6,10,6)
-        switch ($type) {
-            "FLAG" { $row.Background = $script:mBrush.ConvertFrom("#281010"); $fg = "#F7A0A0" }
-            "WARN" { $row.Background = $script:mBrush.ConvertFrom("#28200E"); $fg = "#E0B87A" }
-            "OK"   { $row.Background = $script:mBrush.ConvertFrom("#0E2014"); $fg = "#7ADFAA" }
-            "HEAD" { $row.Background = $script:mBrush.ConvertFrom("#1A1E25"); $fg = "#4F8EF7" }
-            default{ $row.Background = $script:mBrush.ConvertFrom("#13161B"); $fg = "#6B7280" }
-        }
-        $tb = New-Object System.Windows.Controls.TextBlock
-        $tb.Text         = $text
-        $tb.FontFamily   = New-Object System.Windows.Media.FontFamily("Consolas")
-        $tb.FontSize     = 11
-        $tb.Foreground   = $script:mBrush.ConvertFrom($fg)
-        $tb.TextWrapping = "Wrap"
-        $row.Child = $tb
-        $item = New-Object System.Windows.Controls.ListBoxItem
-        $item.Content         = $row
-        $item.Background      = [System.Windows.Media.Brushes]::Transparent
-        $item.BorderThickness = New-Object System.Windows.Thickness(0)
-        $item.Padding         = New-Object System.Windows.Thickness(0)
-        $script:mMemList.Items.Add($item) | Out-Null
-    }
+    $btnClear.Add_Click({
+        $memList.Items.Clear()
+        $memStatus.Text = "idle"
+    }.GetNewClosure())
 
-    $script:mBtnClearMem.Add_Click({
-        $script:mMemList.Items.Clear()
-        $script:mMemSummary.Text      = ""
-        $script:mMemStatus.Text       = "● idle"
-        $script:mMemStatus.Foreground = $script:mBrush.ConvertFrom("#6B7280")
-    })
+    $btnStart.Add_Click({
+        $memList.Items.Clear()
+        $memStatus.Text = "scan placeholder - logic disabled"
+        $memList.Items.Add("[INFO]  Memory scan window opened successfully") | Out-Null
+        $memList.Items.Add("[INFO]  Logic temporarily disabled while debugging") | Out-Null
+        $memList.Items.Add("[OK]    UI is working correctly") | Out-Null
+    }.GetNewClosure())
 
-    $script:mBtnStartMemScan.Add_Click({
-        $script:mMemList.Items.Clear()
-        $script:mMemStatus.Text       = "● scanning..."
-        $script:mMemStatus.Foreground = $script:mBrush.ConvertFrom("#F7A94F")
-        $script:mMemSummary.Text      = ""
-        $script:mMemWin.Dispatcher.Invoke([action]{}, "Render")
-
-        # Only strings that are direct evidence of a self-destruct routine
-        # These would never appear in a legitimate mod's JVM memory
-        $doomStrings = @(
-            # Self-delete method calls that only appear when actively wiping files
-            "selfDestruct","self_destruct","selfdestructing","SelfDestruct",
-            "deleteOnShutdown","DeleteOnShutdown",
-            "cleanupAndExit","cleanup_and_exit",
-            "purgeFiles","purge_files","wipeFiles",
-            "scheduleDelete","scheduleFileDelete",
-            # Shell commands to delete the jar — would only exist if building a delete command
-            "cmd.exe /c del","cmd /c del",
-            "powershell -c Remove","powershell -Command Remove-Item",
-            "rmdir /s /q","rd /s /q",
-            # Java-specific self-delete patterns
-            "deleteOnExit","toFile().delete","jarFile.delete",
-            "Files.delete(jarPath","currentJar().delete",
-            # Shutdown hook registering a file deletion
-            "Runtime.getRuntime().addShutdownHook",
-            "addShutdownHook"
-        )
-
-        $rows = [System.Collections.Generic.List[hashtable]]::new()
-        $totalFound = 0
-
-        # Memory strings
-        $rows.Add(@{ T="  -- MEMORY STRINGS (javaw.exe) --"; K="HEAD" })
-        $javaProcs = Get-Process -Name "javaw" -ErrorAction SilentlyContinue
-        if (-not $javaProcs) {
-            $rows.Add(@{ T="  [INFO]  No javaw.exe running -- start Minecraft first"; K="INFO" })
-        } else {
-            $PROCESS_ALL_ACCESS = 0x1F0FFF
-            foreach ($proc in $javaProcs) {
-                $javaPid = $proc.Id
-                $rows.Add(@{ T="  Scanning PID $javaPid..."; K="INFO" })
-                try {
-                    $hProc = [MemAPI]::OpenProcess($PROCESS_ALL_ACCESS, $false, $javaPid)
-                    if ($hProc -eq [IntPtr]::Zero) {
-                        $rows.Add(@{ T="  [WARN]  Cannot open PID $javaPid -- run as Administrator"; K="WARN" })
-                        continue
-                    }
-                    $mbi     = New-Object MemAPI+MEMORY_BASIC_INFORMATION
-                    $mbiSize = [System.Runtime.InteropServices.Marshal]::SizeOf($mbi)
-                    $addr    = [IntPtr]::Zero
-                    $hitCount = 0
-                    while ([MemAPI]::VirtualQueryEx($hProc, $addr, [ref]$mbi, $mbiSize)) {
-                        if ($mbi.State -eq 0x1000 -and ($mbi.Protect -band 0x02 -or $mbi.Protect -band 0x04 -or $mbi.Protect -band 0x20 -or $mbi.Protect -band 0x40)) {
-                            $size = $mbi.RegionSize.ToInt64()
-                            if ($size -gt 0 -and $size -lt 50MB) {
-                                $buf  = New-Object byte[] $size
-                                $read = 0
-                                if ([MemAPI]::ReadProcessMemory($hProc, $mbi.BaseAddress, $buf, $size, [ref]$read) -and $read -gt 0) {
-                                    $text = [System.Text.Encoding]::ASCII.GetString($buf, 0, $read)
-                                    foreach ($sig in $doomStrings) {
-                                        if ($text -match [regex]::Escape($sig)) {
-                                            $rows.Add(@{ T="  [FLAGGED]  PID $javaPid  ->  string: '$sig'"; K="FLAG" })
-                                            $hitCount++; $totalFound++; break
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        $next = $mbi.BaseAddress.ToInt64() + $mbi.RegionSize.ToInt64()
-                        if ($next -le 0) { break }
-                        try { $addr = [IntPtr]::new($next) } catch { break }
-                    }
-                    [MemAPI]::CloseHandle($hProc) | Out-Null
-                    if ($hitCount -eq 0) { $rows.Add(@{ T="  [OK]  PID $javaPid -- no suspicious strings found"; K="OK" }) }
-                } catch {
-                    $rows.Add(@{ T="  [WARN]  Error scanning PID $($javaPid): $($_.Exception.Message)"; K="WARN" })
-                }
-            }
-        }
-
-        # Temp artifacts
-        $rows.Add(@{ T="  -- TEMP FOLDER ARTIFACTS --"; K="HEAD" })
-        $tempPaths = @($env:TEMP, "$env:LOCALAPPDATA\Temp", "$env:APPDATA\.minecraft\crash-reports")
-        $tempFound = 0
-        foreach ($tp in $tempPaths) {
-            if (-not (Test-Path $tp)) { continue }
-            foreach ($ext in @("*.jar","*.tmp","*.class","*.dll")) {
-                $files = Get-ChildItem $tp -Filter $ext -ErrorAction SilentlyContinue |
-                    Where-Object { $_.LastWriteTime -gt (Get-Date).AddDays(-30) }
-                foreach ($f in $files) {
-                    $isSusp = $false
-                    foreach ($sig in @("doomsday","ddclient","cheat","hack","inject","wurst","meteor")) {
-                        if ($f.Name -match $sig) { $isSusp = $true; break }
-                    }
-                    $bn = ($f.BaseName -replace "[^a-zA-Z]","")
-                    if ($bn.Length -lt 3 -and $f.Extension -eq ".jar") { $isSusp = $true }
-                    $line = "$($f.FullName)  |  $($f.LastWriteTime.ToString('yyyy-MM-dd HH:mm'))"
-                    if ($isSusp) { $rows.Add(@{ T="  [FLAGGED]  $line"; K="FLAG" }); $tempFound++; $totalFound++ }
-                    else         { $rows.Add(@{ T="  [WARN]  $line"; K="WARN" }) }
-                }
-            }
-        }
-        if ($tempFound -eq 0) { $rows.Add(@{ T="  [OK]  No suspicious temp artifacts found"; K="OK" }) }
-
-        # Recent files
-        $rows.Add(@{ T="  -- RECENT FILES --"; K="HEAD" })
-        $recentPath = "$env:APPDATA\Microsoft\Windows\Recent"
-        if (Test-Path $recentPath) {
-            $recentFiles = Get-ChildItem $recentPath -ErrorAction SilentlyContinue |
-                Where-Object { $_.LastWriteTime -gt (Get-Date).AddDays(-14) } |
-                Sort-Object LastWriteTime -Descending
-            $recentFlags = 0
-            foreach ($rf in $recentFiles) {
-                foreach ($sig in @("doomsday","ddclient","cheat","hack","wurst","meteor","inject","liquidbounce")) {
-                    if ($rf.Name.ToLower() -match $sig) {
-                        $rows.Add(@{ T="  [FLAGGED]  $($rf.Name)  |  $($rf.LastWriteTime.ToString('yyyy-MM-dd HH:mm'))"; K="FLAG" })
-                        $recentFlags++; $totalFound++; break
-                    }
-                }
-            }
-            $rows.Add(@{ T="  [INFO]  $($recentFiles.Count) entries checked, $recentFlags flagged"; K="INFO" })
-        } else {
-            $rows.Add(@{ T="  [WARN]  Recent files folder not accessible"; K="WARN" })
-        }
-
-        # Registry
-        $rows.Add(@{ T="  -- REGISTRY CHECK --"; K="HEAD" })
-        $regPaths = @(
-            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run",
-            "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run",
-            "HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce",
-            "HKCU:\Software\JavaSoft",
-            "HKLM:\Software\JavaSoft"
-        )
-        $regFlags = 0
-        foreach ($rp in $regPaths) {
-            if (-not (Test-Path $rp)) { continue }
-            try {
-                $vals = Get-ItemProperty $rp -ErrorAction SilentlyContinue
-                if ($vals) {
-                    $vals.PSObject.Properties | Where-Object { $_.Name -notmatch "^PS" } | ForEach-Object {
-                        $valStr = "$($_.Name) = $($_.Value)"
-                        foreach ($sig in @("doomsday","ddclient","cheat","hack","inject","wurst","meteor","javaagent")) {
-                            if ($valStr.ToLower() -match $sig) {
-                                $rows.Add(@{ T="  [FLAGGED]  $rp  ->  $valStr"; K="FLAG" })
-                                $regFlags++; $totalFound++; break
-                            }
-                        }
-                    }
-                }
-            } catch {}
-        }
-        if ($regFlags -eq 0) { $rows.Add(@{ T="  [OK]  No suspicious registry entries found"; K="OK" }) }
-
-        # Push all to UI at once on the dispatcher
-        $tf = $totalFound
-        $capturedRows = $rows
-        $script:mMemWin.Dispatcher.Invoke([action]{
-            foreach ($row in $capturedRows) {
-                $r = New-Object System.Windows.Controls.Border
-                $r.Margin       = New-Object System.Windows.Thickness(12,2,12,0)
-                $r.CornerRadius = New-Object System.Windows.CornerRadius(4)
-                $r.Padding      = New-Object System.Windows.Thickness(10,6,10,6)
-                switch ($row.K) {
-                    "FLAG" { $r.Background = $script:mBrush.ConvertFrom("#281010"); $fg = "#F7A0A0" }
-                    "WARN" { $r.Background = $script:mBrush.ConvertFrom("#28200E"); $fg = "#E0B87A" }
-                    "OK"   { $r.Background = $script:mBrush.ConvertFrom("#0E2014"); $fg = "#7ADFAA" }
-                    "HEAD" { $r.Background = $script:mBrush.ConvertFrom("#1A1E25"); $fg = "#4F8EF7" }
-                    default{ $r.Background = $script:mBrush.ConvertFrom("#13161B"); $fg = "#6B7280" }
-                }
-                $tb = New-Object System.Windows.Controls.TextBlock
-                $tb.Text         = $row.T
-                $tb.FontFamily   = New-Object System.Windows.Media.FontFamily("Consolas")
-                $tb.FontSize     = 11
-                $tb.Foreground   = $script:mBrush.ConvertFrom($fg)
-                $tb.TextWrapping = "Wrap"
-                $r.Child = $tb
-                $li = New-Object System.Windows.Controls.ListBoxItem
-                $li.Content         = $r
-                $li.Background      = [System.Windows.Media.Brushes]::Transparent
-                $li.BorderThickness = New-Object System.Windows.Thickness(0)
-                $li.Padding         = New-Object System.Windows.Thickness(0)
-                $script:mMemList.Items.Add($li) | Out-Null
-            }
-            $script:mMemStatus.Text       = if ($tf -gt 0) { "● $tf finding(s)" } else { "● clean" }
-            $script:mMemStatus.Foreground = if ($tf -gt 0) { $script:mBrush.ConvertFrom("#F74F4F") } else { $script:mBrush.ConvertFrom("#4FF78E") }
-            $script:mMemSummary.Text      = "Scan complete -- $tf suspicious finding(s)"
-        }.GetNewClosure(), "Normal")
-        $script:mBtnStartMemScan.Dispatcher.Invoke([action]{ $script:mBtnStartMemScan.IsEnabled = $true }, "Normal")
-    })
-
-    # Run the window on its own thread so it doesn't block main UI
     $memWin.Show()
 }
-
 $NavBtns["MEMORY SCAN"].Add_Click({ Open-MemoryScanWindow })
 
 $BtnRescan.Add_Click({ Start-Scan })
