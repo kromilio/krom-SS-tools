@@ -381,27 +381,33 @@ function Run-Checks($modsFolder) {
         </Style>
 
         <Style x:Key="ActionBtn" TargetType="Button">
-            <Setter Property="Background" Value="#13161B"/>
+            <Setter Property="Background" Value="#1A1E25"/>
             <Setter Property="Foreground" Value="#4F8EF7"/>
             <Setter Property="BorderBrush" Value="#282D37"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="FontFamily" Value="Consolas"/>
             <Setter Property="FontSize" Value="11"/>
-            <Setter Property="Height" Value="28"/>
-            <Setter Property="Padding" Value="14,0"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Padding" Value="20,0"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}"
+                        <Border x:Name="bg"
+                                Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="4">
+                                CornerRadius="8">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="#1A1E25"/>
+                                <Setter TargetName="bg" Property="Background" Value="#22272F"/>
+                                <Setter TargetName="bg" Property="BorderBrush" Value="#3A4150"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="bg" Property="Background" Value="#13161B"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -412,6 +418,29 @@ function Run-Checks($modsFolder) {
         <Style x:Key="ScanBtn" TargetType="Button" BasedOn="{StaticResource ActionBtn}">
             <Setter Property="Foreground" Value="#4FF78E"/>
             <Setter Property="BorderBrush" Value="#2A4A38"/>
+            <Setter Property="Background" Value="#0F1F16"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bg"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bg" Property="Background" Value="#16301F"/>
+                                <Setter TargetName="bg" Property="BorderBrush" Value="#3D6B4F"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="bg" Property="Background" Value="#0A1A11"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style x:Key="PathBox" TargetType="TextBox">
@@ -928,27 +957,33 @@ function Open-MemoryScanWindow {
 
     <Window.Resources>
         <Style x:Key="ActionBtn" TargetType="Button">
-            <Setter Property="Background" Value="#13161B"/>
+            <Setter Property="Background" Value="#1A1E25"/>
             <Setter Property="Foreground" Value="#4F8EF7"/>
             <Setter Property="BorderBrush" Value="#282D37"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="FontFamily" Value="Consolas"/>
             <Setter Property="FontSize" Value="11"/>
-            <Setter Property="Height" Value="32"/>
-            <Setter Property="Padding" Value="18,0"/>
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="Padding" Value="22,0"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}"
+                        <Border x:Name="bg"
+                                Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="4">
+                                CornerRadius="8">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="#1A1E25"/>
+                                <Setter TargetName="bg" Property="Background" Value="#22272F"/>
+                                <Setter TargetName="bg" Property="BorderBrush" Value="#3A4150"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="bg" Property="Background" Value="#13161B"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -958,6 +993,29 @@ function Open-MemoryScanWindow {
         <Style x:Key="ScanBtn" TargetType="Button" BasedOn="{StaticResource ActionBtn}">
             <Setter Property="Foreground" Value="#4FF78E"/>
             <Setter Property="BorderBrush" Value="#2A4A38"/>
+            <Setter Property="Background" Value="#0F1F16"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bg"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bg" Property="Background" Value="#16301F"/>
+                                <Setter TargetName="bg" Property="BorderBrush" Value="#3D6B4F"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="bg" Property="Background" Value="#0A1A11"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
         <Style x:Key="ResultItem" TargetType="ListBoxItem">
             <Setter Property="Background" Value="Transparent"/>
