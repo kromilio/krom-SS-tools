@@ -103,8 +103,16 @@ function Run-Checks($modsFolder) {
                             }
                         }
                         $primary = $internalNames[0]
+                        $cheatKeywords = @("mace","catlean","meteor","multi","shieldbreak","spear","wurst","xp","fast","accurate")
+                        $keywordHit = ""
+                        foreach ($kw in $cheatKeywords) {
+                            $allText = ($internalNames -join " ").ToLower()
+                            if ($allText -match $kw) { $keywordHit = $kw; break }
+                        }
                         if (-not $matched) {
                             $results[$s] += @{ Line="[MISMATCH]  $($jar.Name)  ->  internal: '$primary'"; Type="FLAG" }
+                        } elseif ($keywordHit -ne "") {
+                            $results[$s] += @{ Line="[FLAGGED]  $($jar.Name)  ->  keyword match: '$keywordHit' in '$primary'"; Type="FLAG" }
                         } else {
                             $results[$s] += @{ Line="[OK]  $($jar.Name)  ->  '$primary'"; Type="OK" }
                         }
@@ -168,6 +176,50 @@ function Run-Checks($modsFolder) {
         }
     } else {
         $results[$s] += @{ Line="No .minecraft folder found"; Type="OK" }
+    }
+
+    $s = "PREFETCH SCAN"; $results[$s] = @()
+    $prefetchPath = "C:\Windows\Prefetch"
+    $cheatExes = @("javaw","minecraft","tlauncher","multimc","prismlauncher","curseforge","gdlauncher")
+    if (Test-Path $prefetchPath) {
+        try {
+            $pfFiles = Get-ChildItem $prefetchPath -Filter "*.pf" -ErrorAction Stop |
+                Sort-Object LastWriteTime -Descending
+            $mcRelated = $pfFiles | Where-Object {
+                $n = $_.Name.ToLower()
+                $cheatExes | Where-Object { $n -match $_ }
+            }
+            $results[$s] += @{ Line="Total prefetch files:  $($pfFiles.Count)"; Type="INFO" }
+            $results[$s] += @{ Line="Minecraft-related entries:  $($mcRelated.Count)"; Type="INFO" }
+            if ($mcRelated.Count -eq 0) {
+                $results[$s] += @{ Line="No Minecraft-related prefetch entries found"; Type="OK" }
+            } else {
+                foreach ($pf in $mcRelated) {
+                    $results[$s] += @{ Line="[INFO]  $($pf.Name)  |  last run: $($pf.LastWriteTime.ToString('yyyy-MM-dd HH:mm'))"; Type="INFO" }
+                }
+            }
+            # Flag any suspicious launcher prefetch
+            $suspLaunchers = @("cheatbreaker","badlion","lunar","feather","salwyrr")
+            foreach ($pf in $pfFiles) {
+                foreach ($sus in $suspLaunchers) {
+                    if ($pf.Name -match $sus) {
+                        $results[$s] += @{ Line="[FLAGGED]  $($pf.Name)  ->  suspicious launcher"; Type="FLAG" }
+                    }
+                }
+            }
+            # Show recently run exes (last 24h)
+            $recent = $pfFiles | Where-Object { $_.LastWriteTime -gt (Get-Date).AddHours(-24) }
+            if ($recent.Count -gt 0) {
+                $results[$s] += @{ Line="── Recently run (last 24h) ──"; Type="HEAD" }
+                foreach ($pf in $recent) {
+                    $results[$s] += @{ Line="  $($pf.Name)  |  $($pf.LastWriteTime.ToString('HH:mm'))"; Type="INFO" }
+                }
+            }
+        } catch {
+            $results[$s] += @{ Line="[WARN]  Run as Administrator to access Prefetch"; Type="WARN" }
+        }
+    } else {
+        $results[$s] += @{ Line="[WARN]  Prefetch folder not found or not accessible"; Type="WARN" }
     }
 
     return $results
@@ -343,6 +395,7 @@ function Run-Checks($modsFolder) {
                     <Button x:Name="BtnRecycleBin"    Content="  Recycle Bin"    Style="{StaticResource NavBtn}"       Tag="RECYCLE BIN"/>
                     <Button x:Name="BtnDeletedFiles"  Content="  Deleted Files"  Style="{StaticResource NavBtn}"       Tag="DELETED FILES"/>
                     <Button x:Name="BtnRecentChanges" Content="  Recent Changes" Style="{StaticResource NavBtn}"       Tag="RECENT CHANGES"/>
+                    <Button x:Name="BtnPrefetch"      Content="  Prefetch Scan"  Style="{StaticResource NavBtn}"       Tag="PREFETCH SCAN"/>
 
                     <Rectangle Height="1" Fill="#282D37" Margin="12,10"/>
                 </StackPanel>
@@ -470,6 +523,7 @@ $NavBtns = @{
     "RECYCLE BIN"    = $window.FindName("BtnRecycleBin")
     "DELETED FILES"  = $window.FindName("BtnDeletedFiles")
     "RECENT CHANGES" = $window.FindName("BtnRecentChanges")
+    "PREFETCH SCAN"  = $window.FindName("BtnPrefetch")
 }
 
 $PathBox.Text = $global:CustomModsPath
@@ -604,6 +658,7 @@ $NavBtns["RENAMED JARS"].Add_Click(  { Show-Section "RENAMED JARS" })
 $NavBtns["RECYCLE BIN"].Add_Click(   { Show-Section "RECYCLE BIN" })
 $NavBtns["DELETED FILES"].Add_Click( { Show-Section "DELETED FILES" })
 $NavBtns["RECENT CHANGES"].Add_Click({ Show-Section "RECENT CHANGES" })
+$NavBtns["PREFETCH SCAN"].Add_Click( { Show-Section "PREFETCH SCAN" })
 
 $BtnRescan.Add_Click({ Start-Scan })
 
