@@ -151,11 +151,14 @@ function Run-Checks($modsFolder) {
     }
 
     $s = "RECYCLE BIN"; $results[$s] = @()
+
+    # ── Currently in the bin ──
+    $results[$s] += @{ Line="-- CURRENTLY IN BIN --"; Type="HEAD" }
     try {
         $shell = New-Object -ComObject Shell.Application
         $items = $shell.Namespace(0xA).Items()
         if ($items.Count -eq 0) {
-            $results[$s] += @{ Line="Recycle bin is empty"; Type="OK" }
+            $results[$s] += @{ Line="[OK]  Recycle bin is empty"; Type="OK" }
         } else {
             foreach ($item in $items) {
                 if ($item.Name -match "\.jar|minecraft|mods") {
@@ -166,7 +169,78 @@ function Run-Checks($modsFolder) {
             }
         }
     } catch {
-        $results[$s] += @{ Line="[WARN]  Could not read recycle bin"; Type="WARN" }
+        $results[$s] += @{ Line="[WARN]  Could not read recycle bin contents"; Type="WARN" }
+    }
+
+    # ── Permanently deleted in last 3 days via $Recycle.Bin metadata ──
+    $results[$s] += @{ Line="-- PERMANENTLY DELETED (last 3 days) --"; Type="HEAD" }
+    try {
+        $cutoff = (Get-Date).AddDays(-3)
+        $drives = Get-PSDrive -PSProvider FileSystem | Where-Object { Test-Path "$($_.Root)`$Recycle.Bin" }
+        $recentDeleted = 0
+        foreach ($drive in $drives) {
+            $recyclePath = "$($drive.Root)`$Recycle.Bin"
+            # $I files store metadata about deleted items including original path and deletion time
+            $iFiles = Get-ChildItem $recyclePath -Recurse -Filter '$I*' -Force -ErrorAction SilentlyContinue |
+                Where-Object { $_.LastWriteTime -gt $cutoff }
+            foreach ($iFile in $iFiles) {
+                try {
+                    # Read original filename from $I metadata (starts at byte 28)
+                    $bytes    = [System.IO.File]::ReadAllBytes($iFile.FullName)
+                    $nameLen  = [BitConverter]::ToInt32($bytes, 24)
+                    $origName = [System.Text.Encoding]::Unicode.GetString($bytes, 28, [Math]::Min($nameLen * 2, $bytes.Length - 28)).TrimEnd([char]0)
+                    $delTime  = $iFile.LastWriteTime.ToString("yyyy-MM-dd HH:mm")
+                    $display  = if ($origName) { $origName } else { $iFile.Name }
+                    if ($display -match "\.jar|minecraft|mods|cheat|hack|wurst|meteor") {
+                        $results[$s] += @{ Line="[FLAGGED]  $display  |  deleted: $delTime"; Type="FLAG" }
+                    } else {
+                        $results[$s] += @{ Line="[INFO]  $display  |  deleted: $delTime"; Type="INFO" }
+                    }
+                    $recentDeleted++
+                } catch {
+                    $results[$s] += @{ Line="[INFO]  $($iFile.Name)  |  $($iFile.LastWriteTime.ToString('yyyy-MM-dd HH:mm'))"; Type="INFO" }
+                    $recentDeleted++
+                }
+            }
+        }
+        if ($recentDeleted -eq 0) {
+            $results[$s] += @{ Line="[OK]  No permanently deleted files found in last 3 days"; Type="OK" }
+        }
+    } catch {
+        $results[$s] += @{ Line="[WARN]  Could not read Recycle.Bin metadata — try running as Administrator"; Type="WARN" }
+    }
+
+    # ── Deleted in last 24 hours specifically ──
+    $results[$s] += @{ Line="-- DELETED LAST 24 HOURS --"; Type="HEAD" }
+    try {
+        $cutoff24 = (Get-Date).AddHours(-24)
+        $drives24  = Get-PSDrive -PSProvider FileSystem | Where-Object { Test-Path "$($_.Root)`$Recycle.Bin" }
+        $found24   = 0
+        foreach ($drive in $drives24) {
+            $recyclePath = "$($drive.Root)`$Recycle.Bin"
+            $iFiles24 = Get-ChildItem $recyclePath -Recurse -Filter '$I*' -Force -ErrorAction SilentlyContinue |
+                Where-Object { $_.LastWriteTime -gt $cutoff24 }
+            foreach ($iFile in $iFiles24) {
+                try {
+                    $bytes    = [System.IO.File]::ReadAllBytes($iFile.FullName)
+                    $nameLen  = [BitConverter]::ToInt32($bytes, 24)
+                    $origName = [System.Text.Encoding]::Unicode.GetString($bytes, 28, [Math]::Min($nameLen * 2, $bytes.Length - 28)).TrimEnd([char]0)
+                    $delTime  = $iFile.LastWriteTime.ToString("yyyy-MM-dd HH:mm")
+                    $display  = if ($origName) { $origName } else { $iFile.Name }
+                    if ($display -match "\.jar|minecraft|mods|cheat|hack|wurst|meteor") {
+                        $results[$s] += @{ Line="[FLAGGED]  $display  |  $delTime"; Type="FLAG" }
+                    } else {
+                        $results[$s] += @{ Line="[INFO]  $display  |  $delTime"; Type="INFO" }
+                    }
+                    $found24++
+                } catch { $found24++ }
+            }
+        }
+        if ($found24 -eq 0) {
+            $results[$s] += @{ Line="[OK]  Nothing deleted in last 24 hours"; Type="OK" }
+        }
+    } catch {
+        $results[$s] += @{ Line="[WARN]  Could not read last 24h deletions"; Type="WARN" }
     }
 
     $s = "DELETED FILES"; $results[$s] = @()
@@ -1018,19 +1092,25 @@ function Open-MemoryScanWindow {
         $script:mMemSummary.Text      = ""
         $script:mMemWin.Dispatcher.Invoke([action]{}, "Render")
 
+        # Only strings that are direct evidence of a self-destruct routine
+        # These would never appear in a legitimate mod's JVM memory
         $doomStrings = @(
-            "selfdestruct","self_destruct","selfdestructing",
-            "deleteself","delete_self","deleteonshutdown",
-            "cleanupfiles","cleanup_jar","purgefiles",
-            "Files.delete","deleteOnExit","file.deleteonexit",
-            "Runtime.exec","ProcessBuilder","cmd.exe /c del",
-            "powershell -c del","rmdir /s","rm -rf",
-            "javaagent","java.lang.instrument","Instrumentation",
-            "retransformClasses","redefineClasses",
-            "ClassFileTransformer","premain",
-            "sun.misc.Unsafe","theUnsafe",
-            "net.bytebuddy","javassist.ClassPool",
-            "org.objectweb.asm.ClassWriter"
+            # Self-delete method calls that only appear when actively wiping files
+            "selfDestruct","self_destruct","selfdestructing","SelfDestruct",
+            "deleteOnShutdown","DeleteOnShutdown",
+            "cleanupAndExit","cleanup_and_exit",
+            "purgeFiles","purge_files","wipeFiles",
+            "scheduleDelete","scheduleFileDelete",
+            # Shell commands to delete the jar — would only exist if building a delete command
+            "cmd.exe /c del","cmd /c del",
+            "powershell -c Remove","powershell -Command Remove-Item",
+            "rmdir /s /q","rd /s /q",
+            # Java-specific self-delete patterns
+            "deleteOnExit","toFile().delete","jarFile.delete",
+            "Files.delete(jarPath","currentJar().delete",
+            # Shutdown hook registering a file deletion
+            "Runtime.getRuntime().addShutdownHook",
+            "addShutdownHook"
         )
 
         $rows = [System.Collections.Generic.List[hashtable]]::new()
