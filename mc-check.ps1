@@ -110,20 +110,24 @@ function Run-Checks($modsFolder) {
                             if ($allText -match $kw) { $keywordHit = $kw; break }
                         }
                         # Random/gibberish name detection
-                        # A legit mod name has vowels, readable words, version numbers
-                        # A random name like 02h64ut8g has high digit ratio or no vowels
-                        $baseName = $jar.BaseName -replace '[^a-zA-Z0-9]',''
-                        $digitCount  = ($baseName -replace '[^0-9]','').Length
-                        $vowelCount  = ($baseName -replace '[^aeiouAEIOU]','').Length
-                        $totalLen    = $baseName.Length
-                        $isGibberish = $false
-                        if ($totalLen -ge 6) {
+                        # Strip version suffixes like -1.21.11, +mc1.21, _fabric, -forge etc
+                        # so "schlib-1.2.1+1.21.11-fabric" becomes just "schlib"
+                        $strippedName = $jar.BaseName
+                        $strippedName = $strippedName -replace '-\d[\d\.\+\-mc]+.*$',''
+                        $strippedName = $strippedName -replace '[_-](fabric|forge|quilt|neoforge|bukkit|spigot|paper).*$',''
+                        $strippedName = $strippedName -replace '\+.*$',''
+                        $baseName     = $strippedName -replace '[^a-zA-Z0-9]',''
+                        $digitCount   = ($baseName -replace '[^0-9]','').Length
+                        $vowelCount   = ($baseName -replace '[^aeiouAEIOU]','').Length
+                        $totalLen     = $baseName.Length
+                        $isGibberish  = $false
+                        if ($totalLen -ge 5) {
                             $digitRatio = if ($totalLen -gt 0) { $digitCount / $totalLen } else { 0 }
                             $vowelRatio = if ($totalLen -gt 0) { $vowelCount / $totalLen } else { 0 }
-                            # Flag if >40% digits, or <5% vowels and no version pattern
-                            if ($digitRatio -gt 0.4) { $isGibberish = $true }
-                            elseif ($vowelRatio -lt 0.05 -and $baseName -notmatch '^[a-zA-Z]+-\d') { $isGibberish = $true }
-                            # Flag if name is just hex chars (0-9 a-f) 8+ chars
+                            # Only flag if stripped name is still mostly digits or has no vowels at all
+                            if ($digitRatio -gt 0.6) { $isGibberish = $true }
+                            elseif ($vowelRatio -eq 0 -and $totalLen -ge 6) { $isGibberish = $true }
+                            # Flag pure hex strings 8+ chars (e.g. a3f9bc12d7)
                             elseif ($baseName -match '^[0-9a-fA-F]{8,}$') { $isGibberish = $true }
                         }
 
@@ -409,7 +413,8 @@ function Run-Checks($modsFolder) {
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <StackPanel Grid.Row="0" Margin="0,12,0,0">
+                <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Hidden">
+                <StackPanel Margin="0,12,0,0">
                     <TextBlock Text="  CHECKS" FontFamily="Consolas" FontSize="8"
                                Foreground="#6B7280" Margin="0,0,0,6"/>
 
@@ -421,9 +426,11 @@ function Run-Checks($modsFolder) {
                     <Button x:Name="BtnRecentChanges" Content="  Recent Changes" Style="{StaticResource NavBtn}"       Tag="RECENT CHANGES"/>
                     <Button x:Name="BtnPrefetch"      Content="  Prefetch Scan"  Style="{StaticResource NavBtn}"       Tag="PREFETCH SCAN"/>
                     <Button x:Name="BtnLogScanner"    Content="  Log Scanner"    Style="{StaticResource NavBtn}"       Tag="LOG SCANNER"/>
+                    <Button x:Name="BtnMemScan"       Content="  Memory Scan"    Style="{StaticResource NavBtn}"       Tag="MEMORY SCAN"/>
 
                     <Rectangle Height="1" Fill="#282D37" Margin="12,10"/>
                 </StackPanel>
+                </ScrollViewer>
 
                 <Button x:Name="BtnRescan" Grid.Row="1" Content="↺  Rescan"
                         Style="{StaticResource ActionBtn}" Margin="12,0,12,14" Height="32"/>
@@ -578,6 +585,7 @@ $NavBtns = @{
     "RECENT CHANGES" = $window.FindName("BtnRecentChanges")
     "PREFETCH SCAN"  = $window.FindName("BtnPrefetch")
     "LOG SCANNER"    = $window.FindName("BtnLogScanner")
+    "MEMORY SCAN"    = $window.FindName("BtnMemScan")
 }
 
 $PathBox.Text = $global:CustomModsPath
@@ -618,15 +626,16 @@ function Add-ResultRow($text, $type) {
 
 # ── Show section ───────────────────────────────────────────────────────────────
 function Show-Section($key) {
+    if (-not $key) { return }
     $global:ActiveSection = $key
     $ResultsList.Items.Clear()
     $PathBar.Visibility = if ($key -eq "MOD SCANNER") { "Visible" } else { "Collapsed" }
     $LogBar.Visibility  = if ($key -eq "LOG SCANNER")  { "Visible" } else { "Collapsed" }
 
     foreach ($b in $NavBtns.Values) {
-        $b.Style = $window.Resources["NavBtn"]
+        if ($b) { $b.Style = $window.Resources["NavBtn"] }
     }
-    if ($NavBtns.ContainsKey($key)) {
+    if ($NavBtns.ContainsKey($key) -and $NavBtns[$key]) {
         $NavBtns[$key].Style = $window.Resources["NavBtnActive"]
     }
 
@@ -654,6 +663,12 @@ function Show-Section($key) {
         $SectionSub.Text   = "Load a latest.log to scan for cheat client signatures"
         Add-ResultRow "  Enter the path to latest.log above and click Scan this log" "INFO"
         Add-ResultRow "  Default path: %APPDATA%\.minecraft\logs\latest.log" "INFO"
+    } elseif ($key -eq "MEMORY SCAN") {
+        $SectionTitle.Text = "// MEMORY SCAN"
+        $SectionSub.Text   = "Scan for Doomsday Client traces — requires Administrator"
+        Add-ResultRow "  Click Run Memory Scan below to start" "INFO"
+        Add-ResultRow "  Scans: javaw.exe memory strings, temp artifacts, recent files, registry" "INFO"
+        Add-ResultRow "  Requires Minecraft to be running for memory scan" "INFO"
     } else {
         $SectionTitle.Text = "// $key"
         $items = $global:ScanResults[$key]
@@ -683,10 +698,12 @@ function Update-MiniCard {
     $MiniClean.Text = "$ok"
 
     foreach ($sec in $global:ScanResults.Keys) {
+        if (-not $sec) { continue }
         if (-not $NavBtns.ContainsKey($sec)) { continue }
         $hasFlag = ($global:ScanResults[$sec] | Where-Object { $_.Type -eq "FLAG" }).Count -gt 0
         $hasWarn = ($global:ScanResults[$sec] | Where-Object { $_.Type -eq "WARN" }).Count -gt 0
         $btn = $NavBtns[$sec]
+        if (-not $btn) { continue }
         if ($hasFlag)     { $btn.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#F74F4F") }
         elseif ($hasWarn) { $btn.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#F7A94F") }
         else              { $btn.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#4FF78E") }
@@ -722,6 +739,7 @@ $NavBtns["DELETED FILES"].Add_Click( { Show-Section "DELETED FILES" })
 $NavBtns["RECENT CHANGES"].Add_Click({ Show-Section "RECENT CHANGES" })
 $NavBtns["PREFETCH SCAN"].Add_Click( { Show-Section "PREFETCH SCAN" })
 $NavBtns["LOG SCANNER"].Add_Click(   { Show-Section "LOG SCANNER" })
+$NavBtns["MEMORY SCAN"].Add_Click(   { Show-Section "MEMORY SCAN" })
 
 function Scan-Log($logPath) {
     $ResultsList.Items.Clear()
@@ -789,6 +807,208 @@ $BtnScanLog.Add_Click({
     $global:LogPath = $logPath
     Scan-Log $logPath
 })
+
+# ── Memory Scan ────────────────────────────────────────────────────────────────
+# P/Invoke signatures for ReadProcessMemory
+$memSig = @"
+using System;
+using System.Runtime.InteropServices;
+public class MemAPI {
+    [DllImport("kernel32.dll", SetLastError=true)]
+    public static extern bool ReadProcessMemory(
+        IntPtr hProcess, IntPtr lpBaseAddress,
+        byte[] lpBuffer, int nSize, out int lpNumberOfBytesRead);
+
+    [DllImport("kernel32.dll", SetLastError=true)]
+    public static extern IntPtr OpenProcess(
+        uint dwDesiredAccess, bool bInheritHandle, int dwProcessId);
+
+    [DllImport("kernel32.dll", SetLastError=true)]
+    public static extern bool CloseHandle(IntPtr hObject);
+
+    [DllImport("kernel32.dll")]
+    public static extern bool VirtualQueryEx(
+        IntPtr hProcess, IntPtr lpAddress,
+        ref MEMORY_BASIC_INFORMATION lpBuffer, uint dwLength);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MEMORY_BASIC_INFORMATION {
+        public IntPtr BaseAddress;
+        public IntPtr AllocationBase;
+        public uint AllocationProtect;
+        public IntPtr RegionSize;
+        public uint State;
+        public uint Protect;
+        public uint Type;
+    }
+}
+"@
+Add-Type -TypeDefinition $memSig -ErrorAction SilentlyContinue
+
+function Scan-Memory {
+    $ResultsList.Items.Clear()
+    $SectionTitle.Text = "// MEMORY SCAN"
+    $SectionSub.Text   = "Scanning..."
+    $window.Dispatcher.Invoke([action]{}, "Render")
+
+    $doomStrings = @(
+        "doomsday","ddclient","doomsdayclient","doom_client",
+        "wurst","meteor","liquidbounce","aristois","catlean",
+        "killaura","kill_aura","aimassist","autoclick","autoclicker",
+        "nofall","noslowdown","velocityhack","scaffoldhack",
+        "cheat","hack","inject","payload","selfdestruct","self_destruct",
+        "deleteself","cleanup","purge","obfuscated","deobf",
+        "net/minecraft/client/hack","me/doomsday","club/doomsday",
+        "javaagent","instrumentation","retransform"
+    )
+
+    $findings = @()
+    $memFindings = 0
+    $PROCESS_ALL_ACCESS = 0x1F0FFF
+
+    # ── Memory scan of javaw.exe ──
+    Add-ResultRow "  ── MEMORY STRINGS (javaw.exe) ──" "HEAD"
+    $javaProcs = Get-Process -Name "javaw" -ErrorAction SilentlyContinue
+    if (-not $javaProcs) {
+        Add-ResultRow "  [INFO]  No javaw.exe process found — start Minecraft first" "INFO"
+    } else {
+        foreach ($proc in $javaProcs) {
+            Add-ResultRow "  Scanning javaw PID $($proc.Id)..." "INFO"
+            $window.Dispatcher.Invoke([action]{}, "Render")
+            try {
+                $hProc = [MemAPI]::OpenProcess($PROCESS_ALL_ACCESS, $false, $proc.Id)
+                if ($hProc -eq [IntPtr]::Zero) {
+                    Add-ResultRow "  [WARN]  Cannot open PID $($proc.Id) — run as Administrator" "WARN"
+                    continue
+                }
+                $mbi = New-Object MemAPI+MEMORY_BASIC_INFORMATION
+                $mbiSize = [System.Runtime.InteropServices.Marshal]::SizeOf($mbi)
+                $addr = [IntPtr]::Zero
+                $hitCount = 0
+
+                while ([MemAPI]::VirtualQueryEx($hProc, $addr, [ref]$mbi, $mbiSize)) {
+                    # Only scan committed, readable, non-image pages
+                    if ($mbi.State -eq 0x1000 -and ($mbi.Protect -band 0x02 -or $mbi.Protect -band 0x04 -or $mbi.Protect -band 0x20 -or $mbi.Protect -band 0x40)) {
+                        $size = $mbi.RegionSize.ToInt64()
+                        if ($size -gt 0 -and $size -lt 50MB) {
+                            $buf = New-Object byte[] $size
+                            $read = 0
+                            if ([MemAPI]::ReadProcessMemory($hProc, $mbi.BaseAddress, $buf, $size, [ref]$read) -and $read -gt 0) {
+                                $text = [System.Text.Encoding]::ASCII.GetString($buf, 0, $read)
+                                foreach ($sig in $doomStrings) {
+                                    if ($text -match [regex]::Escape($sig)) {
+                                        Add-ResultRow "  [FLAGGED]  PID $($proc.Id)  ->  found string: '$sig'" "FLAG"
+                                        $hitCount++
+                                        $memFindings++
+                                        break
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    $next = $mbi.BaseAddress.ToInt64() + $mbi.RegionSize.ToInt64()
+                    if ($next -le 0) { break }
+                    try { $addr = [IntPtr]::new($next) } catch { break }
+                }
+                [MemAPI]::CloseHandle($hProc) | Out-Null
+                if ($hitCount -eq 0) {
+                    Add-ResultRow "  [OK]  PID $($proc.Id)  ->  no suspicious strings found" "OK"
+                }
+            } catch {
+                Add-ResultRow "  [WARN]  Error scanning PID $($proc.Id): $($_.Exception.Message)" "WARN"
+            }
+        }
+    }
+
+    # ── Temp folder artifacts ──
+    Add-ResultRow "  ── TEMP FOLDER ARTIFACTS ──" "HEAD"
+    $tempPaths = @($env:TEMP, "$env:LOCALAPPDATA\Temp", "$env:APPDATA\.minecraft\crash-reports")
+    $suspExts  = @("*.jar","*.tmp","*.class","*.so","*.dll")
+    $tempFound = 0
+    foreach ($tp in $tempPaths) {
+        if (-not (Test-Path $tp)) { continue }
+        foreach ($ext in $suspExts) {
+            $files = Get-ChildItem $tp -Filter $ext -ErrorAction SilentlyContinue |
+                Where-Object { $_.LastWriteTime -gt (Get-Date).AddDays(-30) }
+            foreach ($f in $files) {
+                $isSusp = $false
+                foreach ($sig in @("doomsday","ddclient","cheat","hack","inject","wurst","meteor")) {
+                    if ($f.Name -match $sig) { $isSusp = $true; break }
+                }
+                # Flag random-named jars in temp (same gibberish logic)
+                $bn = ($f.BaseName -replace "[^a-zA-Z]","")
+                if ($bn.Length -lt 3 -and $f.Extension -eq ".jar") { $isSusp = $true }
+                if ($isSusp) {
+                    Add-ResultRow "  [FLAGGED]  $($f.FullName)  |  $($f.LastWriteTime.ToString('yyyy-MM-dd HH:mm'))" "FLAG"
+                    $tempFound++
+                } else {
+                    Add-ResultRow "  [WARN]  $($f.Name)  |  $($f.LastWriteTime.ToString('yyyy-MM-dd HH:mm'))" "WARN"
+                }
+            }
+        }
+    }
+    if ($tempFound -eq 0) { Add-ResultRow "  [OK]  No suspicious temp artifacts found" "OK" }
+
+    # ── Recent files ──
+    Add-ResultRow "  ── RECENT FILES (Shell:Recent) ──" "HEAD"
+    $recentPath = "$env:APPDATA\Microsoft\Windows\Recent"
+    if (Test-Path $recentPath) {
+        $recentFiles = Get-ChildItem $recentPath -ErrorAction SilentlyContinue |
+            Where-Object { $_.LastWriteTime -gt (Get-Date).AddDays(-14) } |
+            Sort-Object LastWriteTime -Descending
+        $recentFlags = 0
+        foreach ($rf in $recentFiles) {
+            $lower = $rf.Name.ToLower()
+            foreach ($sig in @("doomsday","ddclient","cheat","hack","wurst","meteor","inject","liquidbounce")) {
+                if ($lower -match $sig) {
+                    Add-ResultRow "  [FLAGGED]  $($rf.Name)  |  $($rf.LastWriteTime.ToString('yyyy-MM-dd HH:mm'))" "FLAG"
+                    $recentFlags++
+                    break
+                }
+            }
+        }
+        Add-ResultRow "  [INFO]  $($recentFiles.Count) recent entries checked, $recentFlags flagged" "INFO"
+    } else {
+        Add-ResultRow "  [WARN]  Recent files folder not accessible" "WARN"
+    }
+
+    # ── Registry ──
+    Add-ResultRow "  ── REGISTRY CHECK ──" "HEAD"
+    $regPaths = @(
+        "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run",
+        "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run",
+        "HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce",
+        "HKCU:\Software\Classes",
+        "HKCU:\Software\JavaSoft",
+        "HKLM:\Software\JavaSoft"
+    )
+    $regFlags = 0
+    foreach ($rp in $regPaths) {
+        if (-not (Test-Path $rp)) { continue }
+        try {
+            $vals = Get-ItemProperty $rp -ErrorAction SilentlyContinue
+            if ($vals) {
+                $vals.PSObject.Properties | Where-Object { $_.Name -notmatch "^PS" } | ForEach-Object {
+                    $valStr = "$($_.Name) = $($_.Value)"
+                    $lower  = $valStr.ToLower()
+                    foreach ($sig in @("doomsday","ddclient","cheat","hack","inject","wurst","meteor","liquidbounce","javaagent")) {
+                        if ($lower -match $sig) {
+                            Add-ResultRow "  [FLAGGED]  $rp  ->  $valStr" "FLAG"
+                            $regFlags++
+                            break
+                        }
+                    }
+                }
+            }
+        } catch {}
+    }
+    if ($regFlags -eq 0) { Add-ResultRow "  [OK]  No suspicious registry entries found" "OK" }
+
+    $totalFound = $memFindings + $tempFound + $regFlags
+    $SectionSub.Text = "Scan complete — $totalFound suspicious finding(s)"
+}
+
+$NavBtns["MEMORY SCAN"].Add_Click({ Scan-Memory })
 
 $BtnRescan.Add_Click({ Start-Scan })
 
