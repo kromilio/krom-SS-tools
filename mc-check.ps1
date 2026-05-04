@@ -29,12 +29,13 @@ $fontSansSm = New-Object System.Drawing.Font("Segoe UI", 8)
 # ── Scan Results Storage ───────────────────────────────────────────────────────
 $global:ScanResults = [ordered]@{}
 $global:ActiveSection = "OVERVIEW"
+$global:CustomModsPath = "$env:APPDATA\.minecraft\mods"
 
 # ── Run All Checks ─────────────────────────────────────────────────────────────
 function Run-Checks {
     $results = [ordered]@{}
     $knownCheats = @("wurst","meteor","liquidbounce","aristois","sigma","impact","future","inertia","novoline","xaero","baritone","nodus","vape","huzuni","wolfram","rusherhack")
-    $modsFolder = "$env:APPDATA\.minecraft\mods"
+    $modsFolder = $global:CustomModsPath
 
     # MOD SCANNER
     $s = "MOD SCANNER"; $results[$s] = @()
@@ -254,6 +255,56 @@ $sepLine.Height = 1
 $sepLine.BackColor = $c.Border
 $contentPanel.Controls.Add($sepLine)
 
+# ── Mods folder path bar (only visible on Mod Scanner panel) ───────────────────
+$pathPanel = New-Object System.Windows.Forms.Panel
+$pathPanel.Location = New-Object System.Drawing.Point(20, 72)
+$pathPanel.Height = 40
+$pathPanel.BackColor = $c.Bg
+$pathPanel.Visible = $false
+$contentPanel.Controls.Add($pathPanel)
+
+$pathLabel = New-Object System.Windows.Forms.Label
+$pathLabel.Text = "Mods folder:"
+$pathLabel.Font = $fontMonoSm
+$pathLabel.ForeColor = $c.Muted
+$pathLabel.AutoSize = $true
+$pathLabel.Location = New-Object System.Drawing.Point(0, 12)
+$pathPanel.Controls.Add($pathLabel)
+
+$pathBox = New-Object System.Windows.Forms.TextBox
+$pathBox.Text = $global:CustomModsPath
+$pathBox.Font = $fontMono
+$pathBox.BackColor = $c.Bg3
+$pathBox.ForeColor = $c.Text
+$pathBox.BorderStyle = "FixedSingle"
+$pathBox.Location = New-Object System.Drawing.Point(90, 8)
+$pathBox.Size = New-Object System.Drawing.Size(480, 24)
+$pathPanel.Controls.Add($pathBox)
+
+$pathApplyBtn = New-Object System.Windows.Forms.Button
+$pathApplyBtn.Text = "Set"
+$pathApplyBtn.FlatStyle = "Flat"
+$pathApplyBtn.FlatAppearance.BorderColor = $c.Border
+$pathApplyBtn.FlatAppearance.BorderSize = 1
+$pathApplyBtn.FlatAppearance.MouseOverBackColor = $c.Bg3
+$pathApplyBtn.BackColor = $c.Bg2
+$pathApplyBtn.ForeColor = $c.Accent
+$pathApplyBtn.Font = $fontSans
+$pathApplyBtn.Location = New-Object System.Drawing.Point(578, 7)
+$pathApplyBtn.Size = New-Object System.Drawing.Size(50, 26)
+$pathApplyBtn.Cursor = "Hand"
+$pathApplyBtn.Add_Click({
+    $newPath = $pathBox.Text.Trim()
+    if (Test-Path $newPath) {
+        $global:CustomModsPath = $newPath
+        $pathBox.ForeColor = $c.Green
+        Start-Scan
+    } else {
+        $pathBox.ForeColor = $c.Red
+    }
+})
+$pathPanel.Controls.Add($pathApplyBtn)
+
 # Results list
 $listBox = New-Object System.Windows.Forms.ListBox
 $listBox.Location = New-Object System.Drawing.Point(20, 74)
@@ -378,6 +429,17 @@ function Show-Section($key) {
     $global:ActiveSection = $key
     $listBox.Items.Clear()
 
+    # Show or hide the path bar
+    if ($key -eq "MOD SCANNER") {
+        $pathPanel.Visible = $true
+        $listBox.Location = New-Object System.Drawing.Point(20, 118)
+        $listBox.Size = New-Object System.Drawing.Size(($contentPanel.Width - 40), ($contentPanel.Height - 132))
+    } else {
+        $pathPanel.Visible = $false
+        $listBox.Location = New-Object System.Drawing.Point(20, 74)
+        $listBox.Size = New-Object System.Drawing.Size(($contentPanel.Width - 40), ($contentPanel.Height - 88))
+    }
+
     if ($key -eq "OVERVIEW") {
         $sectionTitle.Text = "// OVERVIEW"
         $sectionSub.Text = "Scanned at $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
@@ -401,6 +463,19 @@ function Show-Section($key) {
             }
             $listBox.Items.Add("") | Out-Null
         }
+    } elseif ($key -eq "MOD SCANNER") {
+        $sectionTitle.Text = "// MOD SCANNER"
+        $items = $global:ScanResults["MOD SCANNER"]
+        if ($items -and $items.Count -gt 0) {
+            $flags = ($items | Where-Object { $_.Type -eq "FLAG" }).Count
+            $sectionSub.Text = "$($items.Count) result(s)  —  $flags flagged"
+            foreach ($item in $items) {
+                $listBox.Items.Add("  $($item.Line)") | Out-Null
+            }
+        } else {
+            $sectionSub.Text = "Set folder path above and rescan"
+            $listBox.Items.Add("  No results yet — set your mods folder path and hit Rescan.") | Out-Null
+        }
     } else {
         $sectionTitle.Text = "// $key"
         $items = $global:ScanResults[$key]
@@ -421,7 +496,15 @@ function Show-Section($key) {
 $form.Add_Resize({
     $statusLabel.Location = New-Object System.Drawing.Point(($titlePanel.Width - $statusLabel.Width - 16), 15)
     $sepLine.Width = $contentPanel.Width - 40
-    $listBox.Size = New-Object System.Drawing.Size(($contentPanel.Width - 40), ($contentPanel.Height - 88))
+    $pathPanel.Width = $contentPanel.Width - 40
+    $pathBox.Width = $contentPanel.Width - 40 - 90 - 60
+    if ($pathPanel.Visible) {
+        $listBox.Location = New-Object System.Drawing.Point(20, 118)
+        $listBox.Size = New-Object System.Drawing.Size(($contentPanel.Width - 40), ($contentPanel.Height - 132))
+    } else {
+        $listBox.Location = New-Object System.Drawing.Point(20, 74)
+        $listBox.Size = New-Object System.Drawing.Size(($contentPanel.Width - 40), ($contentPanel.Height - 88))
+    }
 })
 
 # ── Start scan ─────────────────────────────────────────────────────────────────
@@ -458,6 +541,9 @@ function Start-Scan {
     Show-Section "OVERVIEW"
     $statusLabel.Location = New-Object System.Drawing.Point(($titlePanel.Width - $statusLabel.Width - 16), 15)
     $sepLine.Width = $contentPanel.Width - 40
+    $pathPanel.Width = $contentPanel.Width - 40
+    $pathBox.Width = $contentPanel.Width - 40 - 90 - 60
+    $listBox.Location = New-Object System.Drawing.Point(20, 74)
     $listBox.Size = New-Object System.Drawing.Size(($contentPanel.Width - 40), ($contentPanel.Height - 88))
 }
 
