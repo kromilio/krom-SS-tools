@@ -808,15 +808,16 @@ function Run-Checks($modsFolder) {
                                Foreground="#6B7280" Margin="0,0,0,6"/>
 
                     <Button x:Name="BtnOverview"      Content="  Overview"       Style="{StaticResource NavBtnActive}" Tag="OVERVIEW"/>
-                    <Button x:Name="BtnModScanner"    Content="  Mod Scanner"    Style="{StaticResource NavBtn}"       Tag="MOD SCANNER"/>
-                    <Button x:Name="BtnRenamedJars"   Content="  Renamed Jars"   Style="{StaticResource NavBtn}"       Tag="RENAMED JARS"/>
-                    <Button x:Name="BtnRecycleBin"    Content="  Recycle Bin"    Style="{StaticResource NavBtn}"       Tag="RECYCLE BIN"/>
-                    <Button x:Name="BtnDeletedFiles"  Content="  Deleted Files"  Style="{StaticResource NavBtn}"       Tag="DELETED FILES"/>
-                    <Button x:Name="BtnRecentChanges" Content="  Recent Changes" Style="{StaticResource NavBtn}"       Tag="RECENT CHANGES"/>
-                    <Button x:Name="BtnPrefetch"      Content="  Prefetch Scan"  Style="{StaticResource NavBtn}"       Tag="PREFETCH SCAN"/>
-                    <Button x:Name="BtnLogScanner"    Content="  Log Scanner"    Style="{StaticResource NavBtn}"       Tag="LOG SCANNER"/>
+
+                    <TextBlock Text="  DOOMSDAY DETECTORS" FontFamily="Consolas" FontSize="8"
+                               Foreground="#F74F4F" Margin="0,12,0,4"/>
                     <Button x:Name="BtnMemScan"       Content="  Memory Scan"    Style="{StaticResource NavBtn}"       Tag="MEMORY SCAN"/>
+                    <Button x:Name="BtnLogScanner"    Content="  Log Scanner"    Style="{StaticResource NavBtn}"       Tag="LOG SCANNER"/>
                     <Button x:Name="BtnDownloads"     Content="  Downloads"      Style="{StaticResource NavBtn}"       Tag="DOWNLOADS"/>
+
+                    <TextBlock Text="  MOD SCAN" FontFamily="Consolas" FontSize="8"
+                               Foreground="#4F8EF7" Margin="0,12,0,4"/>
+                    <Button x:Name="BtnRunModScan"    Content="  Run Mod Scan"   Style="{StaticResource NavBtn}"       Tag="MOD SCAN"/>
 
                     <Rectangle Height="1" Fill="#282D37" Margin="12,10"/>
                 </StackPanel>
@@ -968,15 +969,10 @@ $BtnScanLog     = $window.FindName("BtnScanLog")
 
 $NavBtns = @{
     "OVERVIEW"       = $window.FindName("BtnOverview")
-    "MOD SCANNER"    = $window.FindName("BtnModScanner")
-    "RENAMED JARS"   = $window.FindName("BtnRenamedJars")
-    "RECYCLE BIN"    = $window.FindName("BtnRecycleBin")
-    "DELETED FILES"  = $window.FindName("BtnDeletedFiles")
-    "RECENT CHANGES" = $window.FindName("BtnRecentChanges")
-    "PREFETCH SCAN"  = $window.FindName("BtnPrefetch")
-    "LOG SCANNER"    = $window.FindName("BtnLogScanner")
     "MEMORY SCAN"    = $window.FindName("BtnMemScan")
+    "LOG SCANNER"    = $window.FindName("BtnLogScanner")
     "DOWNLOADS"      = $window.FindName("BtnDownloads")
+    "MOD SCAN"       = $window.FindName("BtnRunModScan")
 }
 
 $PathBox.Text = $global:CustomModsPath
@@ -1020,8 +1016,8 @@ function Show-Section($key) {
     if (-not $key) { return }
     $global:ActiveSection = $key
     $ResultsList.Items.Clear()
-    $PathBar.Visibility = if ($key -eq "MOD SCANNER") { "Visible" } else { "Collapsed" }
-    $LogBar.Visibility  = if ($key -eq "LOG SCANNER")  { "Visible" } else { "Collapsed" }
+    $PathBar.Visibility = if ($key -eq "MOD SCAN") { "Visible" } else { "Collapsed" }
+    $LogBar.Visibility  = if ($key -eq "LOG SCANNER") { "Visible" } else { "Collapsed" }
 
     foreach ($b in $NavBtns.Values) {
         if ($b) { $b.Style = $window.Resources["NavBtn"] }
@@ -1039,33 +1035,50 @@ function Show-Section($key) {
                 Add-ResultRow "    $($item.Line)" $item.Type
             }
         }
-    } elseif ($key -eq "MOD SCANNER") {
-        $SectionTitle.Text = "// MOD SCANNER"
-        $items = $global:ScanResults["MOD SCANNER"]
-        if ($items -and $items.Count -gt 0) {
-            $flags = ($items | Where-Object { $_.Type -eq "FLAG" }).Count
-            $SectionSub.Text = "$($items.Count) result(s) — $flags flagged"
-            foreach ($item in $items) { Add-ResultRow "  $($item.Line)" $item.Type }
-        } else {
-            $SectionSub.Text = "Enter mods folder path and click Scan"
+    } elseif ($key -eq "MOD SCAN") {
+        # Unified mod scan - shows MOD SCANNER + RENAMED JARS + RECYCLE BIN + RECENT CHANGES + DELETED FILES
+        $SectionTitle.Text = "// MOD SCAN"
+        $modSections = @("MOD SCANNER", "RENAMED JARS", "RECYCLE BIN", "DELETED FILES", "RECENT CHANGES")
+        $totalItems = 0; $totalFlags = 0
+        foreach ($sec in $modSections) {
+            $items = $global:ScanResults[$sec]
+            if ($items) {
+                $totalItems += $items.Count
+                $totalFlags += ($items | Where-Object { $_.Type -eq "FLAG" }).Count
+            }
+        }
+        $SectionSub.Text = "$totalItems result(s) across 5 checks - $totalFlags flagged"
+
+        foreach ($sec in $modSections) {
+            $items = $global:ScanResults[$sec]
+            if (-not $items) { continue }
+            Add-ResultRow "" "INFO"
+            Add-ResultRow "  == $sec ==" "HEAD"
+            foreach ($item in $items) {
+                Add-ResultRow "    $($item.Line)" $item.Type
+            }
         }
     } elseif ($key -eq "LOG SCANNER") {
         $SectionTitle.Text = "// LOG SCANNER"
         $SectionSub.Text   = "Load a latest.log to scan for cheat client signatures"
         Add-ResultRow "  Enter the path to latest.log above and click Scan this log" "INFO"
         Add-ResultRow "  Default path: %APPDATA%\.minecraft\logs\latest.log" "INFO"
-    } elseif ($key -eq "MEMORY SCAN") {
-        $SectionTitle.Text = "// MEMORY SCAN"
-        $SectionSub.Text   = "Scan for Doomsday Client traces — requires Administrator"
-        Add-ResultRow "  Click Run Memory Scan below to start" "INFO"
-        Add-ResultRow "  Scans: javaw.exe memory strings, temp artifacts, recent files, registry" "INFO"
-        Add-ResultRow "  Requires Minecraft to be running for memory scan" "INFO"
+    } elseif ($key -eq "DOWNLOADS") {
+        $SectionTitle.Text = "// DOWNLOADS"
+        $items = $global:ScanResults["DOWNLOADS"]
+        if ($items -and $items.Count -gt 0) {
+            $flags = ($items | Where-Object { $_.Type -eq "FLAG" }).Count
+            $SectionSub.Text = "$($items.Count) result(s) - $flags flagged"
+            foreach ($item in $items) { Add-ResultRow "  $($item.Line)" $item.Type }
+        } else {
+            $SectionSub.Text = "No data"
+        }
     } else {
         $SectionTitle.Text = "// $key"
         $items = $global:ScanResults[$key]
         if ($items -and $items.Count -gt 0) {
             $flags = ($items | Where-Object { $_.Type -eq "FLAG" }).Count
-            $SectionSub.Text = "$($items.Count) result(s) — $flags flagged"
+            $SectionSub.Text = "$($items.Count) result(s) - $flags flagged"
             foreach ($item in $items) { Add-ResultRow "  $($item.Line)" $item.Type }
         } else {
             $SectionSub.Text = "No data"
@@ -1123,14 +1136,9 @@ function Start-Scan {
 
 # ── Wire up buttons ────────────────────────────────────────────────────────────
 $NavBtns["OVERVIEW"].Add_Click(      { Show-Section "OVERVIEW" })
-$NavBtns["MOD SCANNER"].Add_Click(   { Show-Section "MOD SCANNER" })
-$NavBtns["RENAMED JARS"].Add_Click(  { Show-Section "RENAMED JARS" })
-$NavBtns["RECYCLE BIN"].Add_Click(   { Show-Section "RECYCLE BIN" })
-$NavBtns["DELETED FILES"].Add_Click( { Show-Section "DELETED FILES" })
-$NavBtns["RECENT CHANGES"].Add_Click({ Show-Section "RECENT CHANGES" })
-$NavBtns["PREFETCH SCAN"].Add_Click( { Show-Section "PREFETCH SCAN" })
-$NavBtns["DOWNLOADS"].Add_Click(     { Show-Section "DOWNLOADS" })
+$NavBtns["MOD SCAN"].Add_Click(      { Show-Section "MOD SCAN" })
 $NavBtns["LOG SCANNER"].Add_Click(   { Show-Section "LOG SCANNER" })
+$NavBtns["DOWNLOADS"].Add_Click(     { Show-Section "DOWNLOADS" })
 
 function Scan-Log($logPath) {
     $ResultsList.Items.Clear()
@@ -1470,30 +1478,57 @@ function Open-MemoryScanWindow {
         $global:memWinRef.Dispatcher.Invoke([action]{}, "Render")
 
         # Strings to search for in javaw memory
-        # Universal Java agent / injection markers - these MUST exist in any
-        # injectable cheat jar regardless of client name or version
-        # Zero false positives - legitimate Minecraft mods do not use Java agents
+        # Two-tier detection:
+        # TIER 1 (high confidence) - Universal Java agent markers, zero false positives
+        # TIER 2 (best-effort)     - Known client class path patterns
         $signatures = @(
-            # Java agent JAR manifest entries (required by JVM to load as agent)
+            # ── TIER 1: Universal Java agent markers (100% reliable) ──
+            # Java agent JAR manifest entries
             "Premain-Class:",
             "Agent-Class:",
             "Can-Retransform-Classes:",
             "Can-Redefine-Classes:",
             "Can-Set-Native-Method-Prefix:",
-            # Java agent method signatures (required by Instrumentation API)
+            # Java agent method signatures
             "premain(Ljava/lang/String;Ljava/lang/instrument/Instrumentation;)V",
             "agentmain(Ljava/lang/String;Ljava/lang/instrument/Instrumentation;)V",
             "premain(Ljava/lang/String;)V",
             "agentmain(Ljava/lang/String;)V",
-            # Common bytecode manipulation libraries used to inject cheats at runtime
-            # These have legitimate uses but are extremely rare in normal mods
+            # Bytecode manipulation libraries
             "net/bytebuddy/agent/ByteBuddyAgent",
             "javassist/util/proxy/ProxyFactory",
-            # VirtualMachine attach API used by injectors to attach to running javaw
+            # VirtualMachine attach API
             "com/sun/tools/attach/VirtualMachine",
             "loadAgent(Ljava/lang/String;",
-            # Self-attaching agent (cheat injects itself into its own JVM)
-            "VirtualMachine.attach"
+            "VirtualMachine.attach",
+
+            # ── TIER 2: Known client class path patterns (best-effort) ──
+            # Common naming conventions used by Java cheat clients
+            # NOTE: Closed-source clients change paths between versions
+            # If a real client uses different paths, this won't catch it
+            # Doomsday Client patterns
+            "me/doomsday/","doomsday/Doomsday",
+            "doomsday/client/","com/doomsday/",
+            "club/doomsday/","DDClient.class","DDLoader.class",
+            # Prestige Client patterns
+            "me/prestige/","prestige/Prestige",
+            "prestige/client/","com/prestige/",
+            # Krypton Client patterns
+            "me/krypton/","krypton/Krypton",
+            "krypton/client/","io/krypton/",
+            # Vape patterns
+            "me/vape/","vape/Vape","com/vape/",
+            "VapeAgent","VapeLoader",
+            # Catlean patterns
+            "me/catlean/","catlean/Catlean",
+            "catlean/client/",
+            # MaceCore / SpearCore
+            "me/macecore/","com/macecore/","macecore/MaceCore",
+            "me/spearcore/","com/spearcore/","spearcore/SpearCore",
+            # Generic cheat client structure markers
+            "/Cheats/Cheat.class","/Hacks/Hack.class",
+            "/SelfDestruct.class","/JarDeleter.class",
+            "/cheat/CheatManager","/hack/HackManager"
         )
 
         # Collect rows first, push to UI at the end
