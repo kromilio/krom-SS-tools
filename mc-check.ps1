@@ -292,20 +292,79 @@ function Run-Checks($modsFolder) {
     }
 
     $s = "DELETED FILES"; $results[$s] = @()
+
+    # Method 1: Recycle Bin currently
+    $results[$s] += @{ Line="-- IN RECYCLE BIN --"; Type="HEAD" }
     try {
-        $events = Get-WinEvent -LogName Security -FilterXPath "*[System[EventID=4663]]" -MaxEvents 100 -ErrorAction Stop
-        $found  = $events | Where-Object { $_.Message -match "\.jar|\\mods\\|minecraft" }
-        if ($found.Count -eq 0) {
-            $results[$s] += @{ Line="No relevant deletions in event log"; Type="OK" }
+        $shell = New-Object -ComObject Shell.Application
+        $items = $shell.Namespace(0xA).Items()
+        if ($items.Count -eq 0) {
+            $results[$s] += @{ Line="[OK]  Bin is empty"; Type="OK" }
         } else {
-            foreach ($ev in $found) {
-                if ($ev.Message -match 'Object Name:\s+(.+)') {
+            foreach ($item in $items) {
+                if ($item.Name -match "\.jar|minecraft|mods|cheat|hack|wurst|meteor|doomsday|prestige|krypton|vape") {
+                    $results[$s] += @{ Line="[FLAGGED]  $($item.Name)"; Type="FLAG" }
+                } else {
+                    $results[$s] += @{ Line="[INFO]  $($item.Name)"; Type="INFO" }
+                }
+            }
+        }
+    } catch {
+        $results[$s] += @{ Line="[WARN]  Could not enumerate recycle bin"; Type="WARN" }
+    }
+
+    # Method 2: Recent recycle bin metadata files
+    $results[$s] += @{ Line="-- DELETED VIA RECYCLE BIN (last 7 days) --"; Type="HEAD" }
+    try {
+        $cutoff = (Get-Date).AddDays(-7)
+        $drives = Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Root -match "^[A-Z]:\\$" -and (Test-Path "$($_.Root)`$Recycle.Bin") }
+        $delCount = 0
+        foreach ($drive in $drives) {
+            $iFiles = Get-ChildItem "$($drive.Root)`$Recycle.Bin" -Recurse -Filter '$I*' -Force -ErrorAction SilentlyContinue |
+                Where-Object { $_.LastWriteTime -gt $cutoff }
+            foreach ($iFile in $iFiles) {
+                try {
+                    $bytes = [System.IO.File]::ReadAllBytes($iFile.FullName)
+                    if ($bytes.Length -lt 28) { continue }
+                    $nameLen = [BitConverter]::ToInt32($bytes, 24)
+                    $maxRead = [Math]::Min($nameLen * 2, $bytes.Length - 28)
+                    if ($maxRead -le 0) { continue }
+                    $origName = [System.Text.Encoding]::Unicode.GetString($bytes, 28, $maxRead).TrimEnd([char]0)
+                    $when = $iFile.LastWriteTime.ToString("yyyy-MM-dd HH:mm")
+                    $display = if ($origName) { $origName } else { $iFile.Name }
+                    $delCount++
+                    if ($display -match "\.jar$|minecraft|mods|cheat|hack|wurst|meteor|doomsday|prestige|krypton|vape|catlean") {
+                        $results[$s] += @{ Line="[FLAGGED]  $display  |  $when"; Type="FLAG" }
+                    } else {
+                        $results[$s] += @{ Line="[INFO]  $display  |  $when"; Type="INFO" }
+                    }
+                } catch {}
+            }
+        }
+        if ($delCount -eq 0) { $results[$s] += @{ Line="[OK]  No recycle bin deletions in last 7 days"; Type="OK" } }
+    } catch {
+        $results[$s] += @{ Line="[WARN]  Could not read recycle bin metadata"; Type="WARN" }
+    }
+
+    # Method 3: Security event log (only works if audit policy enabled)
+    $results[$s] += @{ Line="-- SECURITY EVENT LOG (audit, last 3 days) --"; Type="HEAD" }
+    try {
+        $events = Get-WinEvent -FilterHashtable @{
+            LogName='Security'; ID=4660,4663; StartTime=(Get-Date).AddDays(-3)
+        } -MaxEvents 200 -ErrorAction Stop
+        $found = $events | Where-Object { $_.Message -match "\.jar|minecraft|mods|cheat|hack|wurst|meteor|doomsday" }
+        if ($found.Count -eq 0) {
+            $results[$s] += @{ Line="[OK]  No suspicious deletion events"; Type="OK" }
+        } else {
+            foreach ($ev in $found | Select-Object -First 30) {
+                if ($ev.Message -match 'Object Name:\s+([^\r\n]+)') {
                     $results[$s] += @{ Line="[FLAGGED]  $($ev.TimeCreated.ToString('yyyy-MM-dd HH:mm'))  ->  $($matches[1].Trim())"; Type="FLAG" }
                 }
             }
         }
     } catch {
-        $results[$s] += @{ Line="[WARN]  Run as Administrator for event log"; Type="WARN" }
+        $results[$s] += @{ Line="[INFO]  Object Access auditing not enabled (this is normal)"; Type="INFO" }
+        $results[$s] += @{ Line="  To enable: Local Security Policy > Audit Policy > Audit Object Access"; Type="INFO" }
     }
 
     $s = "RECENT CHANGES"; $results[$s] = @()
@@ -431,8 +490,9 @@ function Run-Checks($modsFolder) {
         $results[$s] += @{ Line="[INFO]  No source URLs recorded for downloaded files"; Type="INFO" }
     }
 
-    # 3. Browser download history
-    $results[$s] += @{ Line="-- BROWSER DOWNLOAD HISTORY --"; Type="HEAD" }
+    # 3. Browser download history (ALL downloads ever, last 30 days)
+    # Reads downloads SQLite table from each browser's history database
+    $results[$s] += @{ Line="-- BROWSER DOWNLOAD HISTORY (last 30 days) --"; Type="HEAD" }
     $browsers = @{
         "Chrome"  = "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\History"
         "Edge"    = "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\History"
@@ -443,48 +503,62 @@ function Run-Checks($modsFolder) {
     foreach ($browser in $browsers.GetEnumerator()) {
         $histPath = $browser.Value
         if (-not (Test-Path $histPath)) { continue }
-        # Copy to temp because browser locks the file
         $tempCopy = "$env:TEMP\krom_$($browser.Key)_history.tmp"
         try {
             Copy-Item $histPath $tempCopy -Force -ErrorAction Stop
+            $bytes = [System.IO.File]::ReadAllBytes($tempCopy)
+            $text  = [System.Text.Encoding]::UTF8.GetString($bytes)
 
-            # Use System.Data.SQLite if available, otherwise raw read
-            try {
-                Add-Type -AssemblyName System.Data
-                # PowerShell does not have built-in SQLite - use a lightweight reader
-                # Read raw bytes and search for URLs in the downloads table
-                $bytes = [System.IO.File]::ReadAllBytes($tempCopy)
-                $text  = [System.Text.Encoding]::UTF8.GetString($bytes)
+            # The downloads table in Chrome SQLite stores tab_url, target_path, and timestamps
+            # Extract all download target paths and URLs by looking for filesystem path patterns
+            $allDownloadPaths = [regex]::Matches($text, '[A-Z]:\\[^\x00\r\n"]{5,300}\.[a-zA-Z0-9]{1,5}') |
+                Select-Object -ExpandProperty Value -Unique
+            $allUrls = [regex]::Matches($text, 'https?://[a-zA-Z0-9./?=&_%#:-]{10,300}') |
+                Select-Object -ExpandProperty Value -Unique
 
-                # Find URL patterns near download markers
-                $urls = [regex]::Matches($text, 'https?://[a-zA-Z0-9./?=&_%#:-]{10,300}') | Select-Object -ExpandProperty Value -Unique
-                $relevantUrls = $urls | Where-Object {
-                    $_ -match "\.jar|\.exe|\.zip|cheat|hack|client|inject|prestige|krypton|doomsday|wurst|meteor|vape|catlean|macecore|spearcore|crack|leak"
-                } | Select-Object -First 20
+            $browserBucket = 0
 
-                if ($relevantUrls) {
-                    foreach ($url in $relevantUrls) {
-                        $shortUrl = if ($url.Length -gt 90) { $url.Substring(0, 90) + "..." } else { $url }
-                        $isFlag = $shortUrl -match "cheat|hack|client|crack|leak|inject|prestige|krypton|doomsday|wurst|meteor|vape|catlean|macecore|spearcore"
-                        if ($isFlag) {
-                            $results[$s] += @{ Line="[FLAGGED]  $($browser.Key)  ->  $shortUrl"; Type="FLAG" }
-                        } else {
-                            $results[$s] += @{ Line="[INFO]  $($browser.Key)  ->  $shortUrl"; Type="INFO" }
-                        }
-                        $browserFound++
-                    }
-                } else {
-                    $results[$s] += @{ Line="[OK]  $($browser.Key) - no suspicious URLs found"; Type="OK" }
+            # Show downloaded file paths - shows files that were downloaded EVER
+            foreach ($path in ($allDownloadPaths | Select-Object -First 100)) {
+                if ($path -match "Cache|cookies|favicon|extension|GPUCache|chrome|edge|opera|brave") { continue }
+                $isFlag = $path -match "\.jar$|cheat|hack|client|inject|prestige|krypton|doomsday|wurst|meteor|vape|catlean|macecore|spearcore|crack|leak"
+                $shortP = if ($path.Length -gt 100) { "..." + $path.Substring($path.Length - 97) } else { $path }
+                if ($isFlag) {
+                    $results[$s] += @{ Line="[FLAGGED]  $($browser.Key)  ->  $shortP"; Type="FLAG" }
+                    $browserFound++
+                    $browserBucket++
+                } elseif ($path -match "\.jar$|\.exe$|\.zip$|\.rar$|Downloads") {
+                    $results[$s] += @{ Line="[INFO]  $($browser.Key)  ->  $shortP"; Type="INFO" }
+                    $browserBucket++
                 }
-            } finally {
-                if (Test-Path $tempCopy) { Remove-Item $tempCopy -Force -ErrorAction SilentlyContinue }
+            }
+
+            # Also show the source URLs of downloads
+            $relevantUrls = $allUrls | Where-Object {
+                $_ -match "\.jar|\.exe|\.zip|cheat|hack|client|inject|prestige|krypton|doomsday|wurst|meteor|vape|catlean|macecore|spearcore|crack|leak"
+            } | Select-Object -First 20
+
+            foreach ($url in $relevantUrls) {
+                $shortUrl = if ($url.Length -gt 90) { $url.Substring(0, 90) + "..." } else { $url }
+                $isFlag = $shortUrl -match "cheat|hack|client|crack|leak|inject|prestige|krypton|doomsday|wurst|meteor|vape|catlean|macecore|spearcore"
+                if ($isFlag) {
+                    $results[$s] += @{ Line="[FLAGGED]  $($browser.Key) URL  ->  $shortUrl"; Type="FLAG" }
+                    $browserFound++
+                    $browserBucket++
+                }
+            }
+
+            if ($browserBucket -eq 0) {
+                $results[$s] += @{ Line="[OK]  $($browser.Key) - no suspicious downloads"; Type="OK" }
             }
         } catch {
-            $results[$s] += @{ Line="[WARN]  $($browser.Key) - history locked or unreadable (close browser first)"; Type="WARN" }
+            $results[$s] += @{ Line="[WARN]  $($browser.Key) - history locked (close $($browser.Key) and rescan)"; Type="WARN" }
+        } finally {
+            if (Test-Path $tempCopy) { Remove-Item $tempCopy -Force -ErrorAction SilentlyContinue }
         }
     }
     if ($browserFound -eq 0) {
-        $results[$s] += @{ Line="[INFO]  No suspicious browser downloads found"; Type="INFO" }
+        $results[$s] += @{ Line="[INFO]  No suspicious browser downloads found across all browsers"; Type="INFO" }
     }
 
     # 4. AmCache - registry record of every executable run
