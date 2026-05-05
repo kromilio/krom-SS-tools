@@ -1215,56 +1215,6 @@ function Open-MemoryScanWindow {
             # Self-attaching agent (cheat injects itself into its own JVM)
             "VirtualMachine.attach"
         )
-            "me/prestige/","prestige/Prestige.class",
-            "me/prestige/Prestige","prestige/client/Client",
-            "prestige/Main.class","me/prestige/main/",
-            # Krypton Client (injectable / mod)
-            "me/krypton/","krypton/Krypton.class",
-            "me/krypton/Krypton","krypton/client/Client",
-            "krypton/Main.class","io/krypton/",
-            "me/krypton/main/",
-            # Doomsday Client (injectable / mod)
-            "me/doomsday/","doomsday/Doomsday.class",
-            "me/doomsday/Doomsday","doomsday/client/Client",
-            "doomsday/Main.class","club/doomsday/",
-            "me/doomsday/main/","DDClient.class",
-            # Vape (injectable - paid premium client)
-            "me/vape/","vape/Vape.class","vape/Main.class",
-            "me/vape/main/","com/vape/v","vape/client/",
-            "VapeAgent","VapeLoader","vape/lite/",
-            # Catlean (free client)
-            "me/catlean/","catlean/Catlean.class",
-            "catlean/Main.class","catlean/client/",
-            "me/catlean/main/",
-            # MaceCore (injectable / mod)
-            "me/macecore/","macecore/MaceCore.class",
-            "macecore/Main.class","me/macecore/main/",
-            "macecore/client/","com/macecore/",
-            # SpearCore (injectable / mod)
-            "me/spearcore/","spearcore/SpearCore.class",
-            "spearcore/Main.class","me/spearcore/main/",
-            "spearcore/client/","com/spearcore/",
-            # Common injection mechanism markers
-            # These appear in all injectable Java agents
-            "premain(Ljava/lang/String;Ljava/lang/instrument/Instrumentation;)V",
-            "agentmain(Ljava/lang/String;Ljava/lang/instrument/Instrumentation;)V",
-            "Agent-Class:","Premain-Class:","Can-Retransform-Classes:"
-        )
-            "me/catlean/","com/catlean/client",
-            "me/mace/","com/mace/client",
-            "me/shieldbreak/","com/shieldbreak/",
-            "me/spear/","com/spear/client",
-            # Generic cheat client patterns - only match exact class paths
-            "/cheat/Client.class","/hack/Client.class",
-            "Cheats/Cheats.class","Hacks/Hacks.class",
-            # Self-destruct mechanism class names (very specific)
-            "/SelfDestruct.class","/SelfDestructor.class",
-            "/JarDeleter.class","/FileWiper.class","/Cleanup.class",
-            # Bytecode injection libraries used by cheats (rare in legit mods)
-            "net/bytebuddy/agent","javassist/util/proxy",
-            # Doomsday-specific obfuscated marker classes
-            "DDC.class","DDLoader.class","DDClient.class"
-        )
 
         # Collect rows first, push to UI at the end
         $rows = [System.Collections.Generic.List[hashtable]]::new()
