@@ -372,6 +372,170 @@ function Run-Checks($modsFolder) {
     # Placeholder — log scanner is manual, results populated separately
     $results[$s] += @{ Line="Use the Log Scanner tab to load a latest.log file"; Type="INFO" }
 
+    # ── DOWNLOADS (last 30 days) ──
+    $s = "DOWNLOADS"; $results[$s] = @()
+    $cutoff = (Get-Date).AddDays(-30)
+
+    # 1. Downloads folder contents
+    $results[$s] += @{ Line="-- DOWNLOADS FOLDER --"; Type="HEAD" }
+    $dlPath = "$env:USERPROFILE\Downloads"
+    if (Test-Path $dlPath) {
+        $dlFiles = Get-ChildItem $dlPath -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.LastWriteTime -gt $cutoff } |
+            Sort-Object LastWriteTime -Descending
+        if ($dlFiles.Count -eq 0) {
+            $results[$s] += @{ Line="[OK]  No files in Downloads folder from last 30 days"; Type="OK" }
+        } else {
+            foreach ($f in $dlFiles) {
+                $when = $f.LastWriteTime.ToString("yyyy-MM-dd HH:mm")
+                $sizeKB = [Math]::Round($f.Length / 1KB, 0)
+                $isFlag = $f.Name -match "\.jar$|\.exe$|cheat|hack|wurst|meteor|doomsday|prestige|krypton|vape|catlean|macecore|spearcore|inject|client"
+                if ($isFlag) {
+                    $results[$s] += @{ Line="[FLAGGED]  $($f.Name)  |  ${sizeKB}KB  |  $when"; Type="FLAG" }
+                } else {
+                    $results[$s] += @{ Line="[INFO]  $($f.Name)  |  ${sizeKB}KB  |  $when"; Type="INFO" }
+                }
+            }
+        }
+    } else {
+        $results[$s] += @{ Line="[WARN]  Downloads folder not found"; Type="WARN" }
+    }
+
+    # 2. Mark of the Web - shows source URL of downloaded files
+    $results[$s] += @{ Line="-- MARK OF THE WEB (source URLs) --"; Type="HEAD" }
+    $motwFound = 0
+    if (Test-Path $dlPath) {
+        $jarsAndExes = Get-ChildItem $dlPath -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Extension -in ".jar",".exe",".zip",".rar",".7z",".msi" -and $_.LastWriteTime -gt $cutoff }
+        foreach ($f in $jarsAndExes) {
+            try {
+                $zoneInfo = Get-Content "$($f.FullName):Zone.Identifier" -ErrorAction SilentlyContinue
+                if ($zoneInfo) {
+                    $sourceUrl = ($zoneInfo | Where-Object { $_ -match "^HostUrl=" }) -replace "^HostUrl=",""
+                    $referrer  = ($zoneInfo | Where-Object { $_ -match "^ReferrerUrl=" }) -replace "^ReferrerUrl=",""
+                    if (-not $sourceUrl) { $sourceUrl = ($zoneInfo | Where-Object { $_ -match "^HostUrl=|^ReferrerUrl=" }) -replace "^[^=]+=","" | Select-Object -First 1 }
+                    if ($sourceUrl) {
+                        $isFlag = $sourceUrl -match "cheat|hack|client|crack|leak|inject|prestige|krypton|doomsday|wurst|meteor|vape"
+                        if ($isFlag) {
+                            $results[$s] += @{ Line="[FLAGGED]  $($f.Name)  <-  $sourceUrl"; Type="FLAG" }
+                        } else {
+                            $results[$s] += @{ Line="[INFO]  $($f.Name)  <-  $sourceUrl"; Type="INFO" }
+                        }
+                        $motwFound++
+                    }
+                }
+            } catch {}
+        }
+    }
+    if ($motwFound -eq 0) {
+        $results[$s] += @{ Line="[INFO]  No source URLs recorded for downloaded files"; Type="INFO" }
+    }
+
+    # 3. Browser download history
+    $results[$s] += @{ Line="-- BROWSER DOWNLOAD HISTORY --"; Type="HEAD" }
+    $browsers = @{
+        "Chrome"  = "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\History"
+        "Edge"    = "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\History"
+        "Brave"   = "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data\Default\History"
+        "Opera"   = "$env:APPDATA\Opera Software\Opera Stable\History"
+    }
+    $browserFound = 0
+    foreach ($browser in $browsers.GetEnumerator()) {
+        $histPath = $browser.Value
+        if (-not (Test-Path $histPath)) { continue }
+        # Copy to temp because browser locks the file
+        $tempCopy = "$env:TEMP\krom_$($browser.Key)_history.tmp"
+        try {
+            Copy-Item $histPath $tempCopy -Force -ErrorAction Stop
+
+            # Use System.Data.SQLite if available, otherwise raw read
+            try {
+                Add-Type -AssemblyName System.Data
+                # PowerShell does not have built-in SQLite - use a lightweight reader
+                # Read raw bytes and search for URLs in the downloads table
+                $bytes = [System.IO.File]::ReadAllBytes($tempCopy)
+                $text  = [System.Text.Encoding]::UTF8.GetString($bytes)
+
+                # Find URL patterns near download markers
+                $urls = [regex]::Matches($text, "https?://[^\x00-\x1F\s"<>\\\^`\{\|\}]{10,500}") | Select-Object -ExpandProperty Value -Unique
+                $relevantUrls = $urls | Where-Object {
+                    $_ -match "\.jar|\.exe|\.zip|cheat|hack|client|inject|prestige|krypton|doomsday|wurst|meteor|vape|catlean|macecore|spearcore|crack|leak"
+                } | Select-Object -First 20
+
+                if ($relevantUrls) {
+                    foreach ($url in $relevantUrls) {
+                        $shortUrl = if ($url.Length -gt 90) { $url.Substring(0, 90) + "..." } else { $url }
+                        $isFlag = $shortUrl -match "cheat|hack|client|crack|leak|inject|prestige|krypton|doomsday|wurst|meteor|vape|catlean|macecore|spearcore"
+                        if ($isFlag) {
+                            $results[$s] += @{ Line="[FLAGGED]  $($browser.Key)  ->  $shortUrl"; Type="FLAG" }
+                        } else {
+                            $results[$s] += @{ Line="[INFO]  $($browser.Key)  ->  $shortUrl"; Type="INFO" }
+                        }
+                        $browserFound++
+                    }
+                } else {
+                    $results[$s] += @{ Line="[OK]  $($browser.Key) - no suspicious URLs found"; Type="OK" }
+                }
+            } finally {
+                if (Test-Path $tempCopy) { Remove-Item $tempCopy -Force -ErrorAction SilentlyContinue }
+            }
+        } catch {
+            $results[$s] += @{ Line="[WARN]  $($browser.Key) - history locked or unreadable (close browser first)"; Type="WARN" }
+        }
+    }
+    if ($browserFound -eq 0) {
+        $results[$s] += @{ Line="[INFO]  No suspicious browser downloads found"; Type="INFO" }
+    }
+
+    # 4. AmCache - registry record of every executable run
+    $results[$s] += @{ Line="-- AMCACHE (executables run, last 30 days) --"; Type="HEAD" }
+    try {
+        $amcachePath = "C:\Windows\AppCompat\Programs\Amcache.hve"
+        if (Test-Path $amcachePath) {
+            # AmCache is a registry hive that requires special tools to read offline
+            # Use the live registry which has some of the same data
+            $amcacheKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModel\Repository\Packages"
+            $userAssist = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\UserAssist"
+            $amcacheFound = 0
+
+            # Check UserAssist for recently run programs
+            $uaKeys = Get-ChildItem $userAssist -ErrorAction SilentlyContinue
+            foreach ($uaKey in $uaKeys) {
+                $countKey = "$($uaKey.PSPath)\Count"
+                if (Test-Path $countKey) {
+                    $values = (Get-Item $countKey).Property
+                    foreach ($name in $values) {
+                        # ROT13 decode the value name
+                        $decoded = -join ($name.ToCharArray() | ForEach-Object {
+                            $c = [int][char]$_
+                            if ($c -ge 65 -and $c -le 90)  { [char](((($c - 65 + 13) % 26) + 65)) }
+                            elseif ($c -ge 97 -and $c -le 122) { [char](((($c - 97 + 13) % 26) + 97)) }
+                            else { [char]$c }
+                        })
+                        if ($decoded -match "\.exe$|\.jar$" -and $decoded -match "cheat|hack|client|inject|prestige|krypton|doomsday|wurst|meteor|vape|catlean|macecore|spearcore|launcher") {
+                            $isFlag = $decoded -match "cheat|hack|inject|prestige|krypton|doomsday|wurst|meteor|vape|catlean|macecore|spearcore"
+                            $shortDec = if ($decoded.Length -gt 100) { $decoded.Substring(0, 100) + "..." } else { $decoded }
+                            if ($isFlag) {
+                                $results[$s] += @{ Line="[FLAGGED]  $shortDec"; Type="FLAG" }
+                            } else {
+                                $results[$s] += @{ Line="[INFO]  $shortDec"; Type="INFO" }
+                            }
+                            $amcacheFound++
+                        }
+                    }
+                }
+            }
+
+            if ($amcacheFound -eq 0) {
+                $results[$s] += @{ Line="[OK]  No suspicious programs in UserAssist registry"; Type="OK" }
+            }
+        } else {
+            $results[$s] += @{ Line="[WARN]  AmCache.hve not accessible"; Type="WARN" }
+        }
+    } catch {
+        $results[$s] += @{ Line="[WARN]  Could not read AmCache: $($_.Exception.Message)"; Type="WARN" }
+    }
+
     return $results
 }
 
@@ -578,6 +742,7 @@ function Run-Checks($modsFolder) {
                     <Button x:Name="BtnPrefetch"      Content="  Prefetch Scan"  Style="{StaticResource NavBtn}"       Tag="PREFETCH SCAN"/>
                     <Button x:Name="BtnLogScanner"    Content="  Log Scanner"    Style="{StaticResource NavBtn}"       Tag="LOG SCANNER"/>
                     <Button x:Name="BtnMemScan"       Content="  Memory Scan"    Style="{StaticResource NavBtn}"       Tag="MEMORY SCAN"/>
+                    <Button x:Name="BtnDownloads"     Content="  Downloads"      Style="{StaticResource NavBtn}"       Tag="DOWNLOADS"/>
 
                     <Rectangle Height="1" Fill="#282D37" Margin="12,10"/>
                 </StackPanel>
@@ -737,6 +902,7 @@ $NavBtns = @{
     "PREFETCH SCAN"  = $window.FindName("BtnPrefetch")
     "LOG SCANNER"    = $window.FindName("BtnLogScanner")
     "MEMORY SCAN"    = $window.FindName("BtnMemScan")
+    "DOWNLOADS"      = $window.FindName("BtnDownloads")
 }
 
 $PathBox.Text = $global:CustomModsPath
@@ -889,6 +1055,7 @@ $NavBtns["RECYCLE BIN"].Add_Click(   { Show-Section "RECYCLE BIN" })
 $NavBtns["DELETED FILES"].Add_Click( { Show-Section "DELETED FILES" })
 $NavBtns["RECENT CHANGES"].Add_Click({ Show-Section "RECENT CHANGES" })
 $NavBtns["PREFETCH SCAN"].Add_Click( { Show-Section "PREFETCH SCAN" })
+$NavBtns["DOWNLOADS"].Add_Click(     { Show-Section "DOWNLOADS" })
 $NavBtns["LOG SCANNER"].Add_Click(   { Show-Section "LOG SCANNER" })
 
 function Scan-Log($logPath) {
