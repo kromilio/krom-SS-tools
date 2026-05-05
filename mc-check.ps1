@@ -175,55 +175,94 @@ function Run-Checks($modsFolder) {
     # ── Currently in bin (still recoverable, before permanent deletion) ──
     # (already scanned above)
 
-    # ── Permanently deleted via USN Journal (last 3 days) ──
-    # Reads NTFS USN Change Journal which logs every file operation including Shift+Delete
-    $results[$s] += @{ Line="-- PERMANENTLY DELETED via USN Journal (last 3 days) --"; Type="HEAD" }
+    # ── Permanently deleted via $Recycle.Bin metadata (last 3 days) ──
+    # Reads $I metadata files which persist briefly even after bin is emptied
+    $results[$s] += @{ Line="-- PERMANENTLY DELETED (last 3 days) --"; Type="HEAD" }
     try {
         $cutoff = (Get-Date).AddDays(-3)
-        $drives = Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Root -match "^[A-Z]:\\$" }
-        $usnFound = 0
-        $usnTotal = 0
+        $drives = Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Root -match "^[A-Z]:\\$" -and (Test-Path "$($_.Root)`$Recycle.Bin") }
+        $foundCount = 0
 
         foreach ($drive in $drives) {
-            $driveLetter = $drive.Root.TrimEnd("\\")
-            try {
-                # fsutil reads the USN journal raw — much more complete than recycle bin
-                # Reason flag 0x00000200 = USN_REASON_FILE_DELETE, 0x00000800 = OBJECT_ID_CHANGE
-                $usnOutput = & fsutil usn readjournal $driveLetter csv 2>$null
-                if ($usnOutput) {
-                    foreach ($line in $usnOutput) {
-                        if ($line -notmatch "^\d+,") { continue }
-                        $parts = $line -split ","
-                        if ($parts.Count -lt 9) { continue }
-                        $reason = $parts[5]
-                        $fileName = $parts[8]
-                        # Reason 0x200 (FILE_DELETE) or contains DELETE
-                        if ($reason -match "0x[0-9A-Fa-f]*[2-9a-fA-F][0-9A-Fa-f]{2}$" -or $reason -match "DELETE") {
-                            $usnTotal++
-                            $isFlag = $false
-                            if ($fileName -match "\.jar$|minecraft|mods|cheat|hack|wurst|meteor|doomsday|inject|prestige|krypton") {
-                                $isFlag = $true
-                            }
-                            if ($isFlag -or $usnFound -lt 30) {
-                                if ($isFlag) {
-                                    $results[$s] += @{ Line="[FLAGGED]  $driveLetter\...\$fileName  ($reason)"; Type="FLAG" }
-                                } else {
-                                    $results[$s] += @{ Line="[INFO]  $driveLetter\...\$fileName"; Type="INFO" }
-                                }
-                                $usnFound++
-                            }
-                        }
+            $recyclePath = "$($drive.Root)`$Recycle.Bin"
+            $iFiles = Get-ChildItem $recyclePath -Recurse -Filter '$I*' -Force -ErrorAction SilentlyContinue |
+                Where-Object { $_.LastWriteTime -gt $cutoff }
+            foreach ($iFile in $iFiles) {
+                try {
+                    $bytes    = [System.IO.File]::ReadAllBytes($iFile.FullName)
+                    if ($bytes.Length -lt 28) { continue }
+                    $nameLen  = [BitConverter]::ToInt32($bytes, 24)
+                    $maxRead  = [Math]::Min($nameLen * 2, $bytes.Length - 28)
+                    if ($maxRead -le 0) { continue }
+                    $origName = [System.Text.Encoding]::Unicode.GetString($bytes, 28, $maxRead).TrimEnd([char]0)
+                    $delTime  = $iFile.LastWriteTime.ToString("yyyy-MM-dd HH:mm")
+                    $display  = if ($origName) { $origName } else { $iFile.Name }
+                    $isFlag = $false
+                    if ($display -match "\.jar$|minecraft|mods|cheat|hack|wurst|meteor|doomsday|inject|prestige|krypton|vape|catlean|macecore|spearcore") {
+                        $isFlag = $true
                     }
-                }
-            } catch {}
+                    if ($isFlag) {
+                        $results[$s] += @{ Line="[FLAGGED]  $display  |  deleted: $delTime"; Type="FLAG" }
+                    } else {
+                        $results[$s] += @{ Line="[INFO]  $display  |  deleted: $delTime"; Type="INFO" }
+                    }
+                    $foundCount++
+                } catch {}
+            }
         }
-        if ($usnFound -eq 0) {
-            $results[$s] += @{ Line="[WARN]  USN Journal unavailable — run as Administrator for complete results"; Type="WARN" }
+        if ($foundCount -eq 0) {
+            $results[$s] += @{ Line="[OK]  No permanently deleted files found in last 3 days"; Type="OK" }
         } else {
-            $results[$s] += @{ Line="[INFO]  Showed $usnFound of $usnTotal deletion entries (capped at 30 unflagged)"; Type="INFO" }
+            $results[$s] += @{ Line="[INFO]  Found $foundCount permanent deletion record(s)"; Type="INFO" }
         }
     } catch {
-        $results[$s] += @{ Line="[WARN]  Could not query USN Journal: $($_.Exception.Message)"; Type="WARN" }
+        $results[$s] += @{ Line="[WARN]  Could not read deletion metadata: $($_.Exception.Message)"; Type="WARN" }
+    }
+
+    # ── File system events from event log ──
+    # Captures any deletion that left a Windows event behind
+    $results[$s] += @{ Line="-- FILE SYSTEM EVENTS (last 3 days) --"; Type="HEAD" }
+    try {
+        $cutoff = (Get-Date).AddDays(-3)
+        $eventCount = 0
+
+        # Try Security log event 4660 (object deleted) - requires audit policy
+        try {
+            $events = Get-WinEvent -FilterHashtable @{
+                LogName='Security'; ID=4660; StartTime=$cutoff
+            } -MaxEvents 50 -ErrorAction Stop
+            foreach ($ev in $events) {
+                $msg = $ev.Message
+                $obj = if ($msg -match "Object Name:\s+([^\r\n]+)") { $matches[1].Trim() } else { "(unknown)" }
+                $when = $ev.TimeCreated.ToString("yyyy-MM-dd HH:mm")
+                if ($obj -match "\.jar|minecraft|mods|cheat|hack|wurst|meteor|doomsday|prestige|krypton|vape|catlean") {
+                    $results[$s] += @{ Line="[FLAGGED]  $when  ->  $obj"; Type="FLAG" }
+                    $eventCount++
+                }
+            }
+        } catch {}
+
+        # Try System log for any related events
+        try {
+            $sysEvents = Get-WinEvent -FilterHashtable @{
+                LogName='System'; StartTime=$cutoff
+            } -MaxEvents 200 -ErrorAction SilentlyContinue |
+                Where-Object { $_.Message -match "\.jar|cheat|inject|wurst|meteor|doomsday|prestige|krypton" }
+            foreach ($ev in $sysEvents) {
+                $when = $ev.TimeCreated.ToString("yyyy-MM-dd HH:mm")
+                $shortMsg = ($ev.Message -split "`n")[0].Trim()
+                if ($shortMsg.Length -gt 100) { $shortMsg = $shortMsg.Substring(0, 100) + "..." }
+                $results[$s] += @{ Line="[FLAGGED]  $when  ->  $shortMsg"; Type="FLAG" }
+                $eventCount++
+            }
+        } catch {}
+
+        if ($eventCount -eq 0) {
+            $results[$s] += @{ Line="[OK]  No suspicious file events in logs"; Type="OK" }
+            $results[$s] += @{ Line="  (Tip: enable Object Access auditing for more detail)"; Type="INFO" }
+        }
+    } catch {
+        $results[$s] += @{ Line="[WARN]  Could not query event logs: $($_.Exception.Message)"; Type="WARN" }
     }
 
     # ── Security Event Log (4660 = object deleted) ──
