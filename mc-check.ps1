@@ -457,7 +457,7 @@ function Run-Checks($modsFolder) {
                 $text  = [System.Text.Encoding]::UTF8.GetString($bytes)
 
                 # Find URL patterns near download markers
-                $urls = [regex]::Matches($text, "https?://[^\x00-\x1F\s"<>\\\^`\{\|\}]{10,500}") | Select-Object -ExpandProperty Value -Unique
+                $urls = [regex]::Matches($text, 'https?://[a-zA-Z0-9./?=&_%#:-]{10,300}') | Select-Object -ExpandProperty Value -Unique
                 $relevantUrls = $urls | Where-Object {
                     $_ -match "\.jar|\.exe|\.zip|cheat|hack|client|inject|prestige|krypton|doomsday|wurst|meteor|vape|catlean|macecore|spearcore|crack|leak"
                 } | Select-Object -First 20
