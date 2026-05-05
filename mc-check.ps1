@@ -474,7 +474,7 @@ function Run-Checks($modsFolder) {
                     $referrer  = ($zoneInfo | Where-Object { $_ -match "^ReferrerUrl=" }) -replace "^ReferrerUrl=",""
                     if (-not $sourceUrl) { $sourceUrl = ($zoneInfo | Where-Object { $_ -match "^HostUrl=|^ReferrerUrl=" }) -replace "^[^=]+=","" | Select-Object -First 1 }
                     if ($sourceUrl) {
-                        $isFlag = $sourceUrl -match "cheat|hack|client|crack|leak|prestige|krypton|doomsday|wurst|meteor|vape|catlean|macecore|spearcore|loader|injector|inject|attach|attacher|launcher|bootstrap|patcher|premain|agent|jvm-agent|jvmagent|hook|payload|stub|dropper"
+                        $isFlag = $sourceUrl -match "cheat|crack|leak|prestige|krypton|doomsday|wurst|meteor|catlean|macecore|spearcore|\bvape\b|\binjector\b|\binject\b|\battacher\b|\bpremain\b|\bjvm-agent\b|\bjvmagent\b|\bdropper\b"
                         if ($isFlag) {
                             $results[$s] += @{ Line="[FLAGGED]  $($f.Name)  <-  $sourceUrl"; Type="FLAG" }
                         } else {
@@ -521,7 +521,7 @@ function Run-Checks($modsFolder) {
             # Show downloaded file paths - shows files that were downloaded EVER
             foreach ($path in ($allDownloadPaths | Select-Object -First 100)) {
                 if ($path -match "Cache|cookies|favicon|extension|GPUCache|chrome|edge|opera|brave") { continue }
-                $isFlag = $path -match "\.jar$|cheat|hack|client|crack|leak|prestige|krypton|doomsday|wurst|meteor|vape|catlean|macecore|spearcore|loader|injector|inject|attach|attacher|launcher|bootstrap|patcher|premain|agent|jvm-agent|jvmagent|hook|payload|stub|dropper"
+                $isFlag = $path -match "\.jar$|cheat|crack|leak|prestige|krypton|doomsday|wurst|meteor|catlean|macecore|spearcore|\bvape\b|\binjector\b|\binject\b|\battacher\b|\bpremain\b|\bjvm-agent\b|\bjvmagent\b|\bdropper\b"
                 $shortP = if ($path.Length -gt 100) { "..." + $path.Substring($path.Length - 97) } else { $path }
                 if ($isFlag) {
                     $results[$s] += @{ Line="[FLAGGED]  $($browser.Key)  ->  $shortP"; Type="FLAG" }
@@ -535,12 +535,12 @@ function Run-Checks($modsFolder) {
 
             # Also show the source URLs of downloads
             $relevantUrls = $allUrls | Where-Object {
-                $_ -match "\.jar|\.exe|\.zip|cheat|hack|client|crack|leak|prestige|krypton|doomsday|wurst|meteor|vape|catlean|macecore|spearcore|loader|injector|inject|attach|attacher|launcher|bootstrap|patcher|premain|agent|jvm-agent|jvmagent|hook|payload|stub|dropper"
+                $_ -match "\.jar|\.exe|\.zip|cheat|crack|leak|prestige|krypton|doomsday|wurst|meteor|catlean|macecore|spearcore|\bvape\b|\binjector\b|\binject\b|\battacher\b|\bpremain\b|\bjvm-agent\b|\bjvmagent\b|\bdropper\b"
             } | Select-Object -First 20
 
             foreach ($url in $relevantUrls) {
                 $shortUrl = if ($url.Length -gt 90) { $url.Substring(0, 90) + "..." } else { $url }
-                $isFlag = $shortUrl -match "cheat|hack|client|crack|leak|prestige|krypton|doomsday|wurst|meteor|vape|catlean|macecore|spearcore|loader|injector|inject|attach|attacher|launcher|bootstrap|patcher|premain|agent|jvm-agent|jvmagent|hook|payload|stub|dropper|catlean|macecore|spearcore"
+                $isFlag = $shortUrl -match "cheat|crack|leak|prestige|krypton|doomsday|wurst|meteor|catlean|macecore|spearcore|\bvape\b|\binjector\b|\binject\b|\battacher\b|\bpremain\b|\bjvm-agent\b|\bjvmagent\b|\bdropper\b|catlean|macecore|spearcore"
                 if ($isFlag) {
                     $results[$s] += @{ Line="[FLAGGED]  $($browser.Key) URL  ->  $shortUrl"; Type="FLAG" }
                     $browserFound++
@@ -586,8 +586,8 @@ function Run-Checks($modsFolder) {
                             elseif ($c -ge 97 -and $c -le 122) { [char](((($c - 97 + 13) % 26) + 97)) }
                             else { [char]$c }
                         })
-                        if ($decoded -match "\.exe$|\.jar$" -and $decoded -match "cheat|hack|client|prestige|krypton|doomsday|wurst|meteor|vape|catlean|macecore|spearcore|launcher|loader|injector|inject|attach|attacher|launcher|bootstrap|patcher|premain|agent|jvm-agent|jvmagent|hook|payload|stub|dropper") {
-                            $isFlag = $decoded -match "cheat|hack|prestige|krypton|doomsday|wurst|meteor|vape|catlean|macecore|spearcore|loader|injector|inject|attach|attacher|launcher|bootstrap|patcher|premain|agent|jvm-agent|jvmagent|hook|payload|stub|dropper"
+                        if ($decoded -match "\.exe$|\.jar$" -and $decoded -match "cheat|crack|leak|prestige|krypton|doomsday|wurst|meteor|catlean|macecore|spearcore|\bvape\b|\binjector\b|\binject\b|\battacher\b|\bpremain\b|\bjvm-agent\b|\bjvmagent\b|\bdropper\b") {
+                            $isFlag = $decoded -match "cheat|crack|leak|prestige|krypton|doomsday|wurst|meteor|catlean|macecore|spearcore|\bvape\b|\binjector\b|\binject\b|\battacher\b|\bpremain\b|\bjvm-agent\b|\bjvmagent\b|\bdropper\b"
                             $shortDec = if ($decoded.Length -gt 100) { $decoded.Substring(0, 100) + "..." } else { $decoded }
                             if ($isFlag) {
                                 $results[$s] += @{ Line="[FLAGGED]  $shortDec"; Type="FLAG" }
